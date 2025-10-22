@@ -85,19 +85,31 @@ pipeline {
                         sleep 30
                         
                         # Start port-forward in background
-                        kubectl port-forward -n ${KUBE_NAMESPACE} pod/\$POD_NAME 3001:80 >/tmp/timer-app-bluegreen-\${BUILD_NUMBER}.log 2>&1 &
+                        kubectl port-forward -n ${KUBE_NAMESPACE} pod/\$POD_NAME 3002:80 >/tmp/timer-app-bluegreen-\${BUILD_NUMBER}.log 2>&1 &
                         PF_PID=\$!
                         echo "Port-forward started with PID: \$PF_PID"
                         
-                        # Wait for port-forward to be ready
+                        # Wait for port-forward to be ready and verify it's working
                         sleep 20
+                        
+                        # Verify port-forward is working
+                        echo "Verifying port-forward is working..."
+                        for i in {1..5}; do
+                            if curl -s http://localhost:3002 >/dev/null 2>&1; then
+                                echo "Port-forward verified on attempt \$i"
+                                break
+                            else
+                                echo "Port-forward not ready on attempt \$i, waiting..."
+                                sleep 5
+                            fi
+                        done
                         
                         # Test the application with retries
                         echo "Testing application with retries..."
                         set +e
                         for i in {1..3}; do
                             echo "Attempt \$i/3..."
-                            curl -f http://localhost:3001 --connect-timeout 15 --max-time 30
+                            curl -f http://localhost:3002 --connect-timeout 15 --max-time 30
                             STATUS=\$?
                             if [ \$STATUS -eq 0 ]; then
                                 echo "Test successful on attempt \$i"

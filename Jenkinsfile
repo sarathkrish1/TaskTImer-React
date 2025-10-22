@@ -71,7 +71,7 @@ pipeline {
                         
                         # Wait for pods to be ready and get a running pod
                         echo "Waiting for ${env.TARGET_COLOR} pods to be ready..."
-                        kubectl wait --for=condition=ready pod -l app=timer-app,track=${env.TARGET_COLOR} -n ${KUBE_NAMESPACE} --timeout=60s
+                        kubectl wait --for=condition=ready pod -l app=timer-app,track=${env.TARGET_COLOR} -n ${KUBE_NAMESPACE} --timeout=120s
                         
                         # Get the newest running pod
                         POD_NAME=\$(kubectl get pods -n ${KUBE_NAMESPACE} -l app=timer-app,track=${env.TARGET_COLOR} --field-selector=status.phase=Running -o jsonpath='{.items[-1].metadata.name}')

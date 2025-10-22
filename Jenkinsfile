@@ -88,18 +88,32 @@ pipeline {
                     sh """
                         set -e
                         POD_NAME=\$(kubectl get pods -n ${KUBE_NAMESPACE} -l app=timer-app,track=${env.TARGET_COLOR} -o jsonpath='{.items[0].metadata.name}')
+                        echo "Testing pod: \$POD_NAME"
+                        
+                        # Start port-forward in background
                         kubectl port-forward -n ${KUBE_NAMESPACE} pod/\$POD_NAME 3001:80 >/tmp/timer-app-bluegreen-\${BUILD_NUMBER}.log 2>&1 &
                         PF_PID=\$!
-                        sleep 10
+                        echo "Port-forward started with PID: \$PF_PID"
+                        
+                        # Wait for port-forward to be ready
+                        sleep 15
+                        
+                        # Test the application
                         set +e
-                        curl -f http://localhost:3001
+                        curl -f http://localhost:3001 --connect-timeout 10 --max-time 30
                         STATUS=\$?
                         set -e
-                        kill \$PF_PID
-                        wait \$PF_PID || true
+                        
+                        # Clean up port-forward
+                        kill \$PF_PID 2>/dev/null || true
+                        wait \$PF_PID 2>/dev/null || true
+                        
+                        echo "Smoke test status: \$STATUS"
                         if [ \$STATUS -ne 0 ]; then
+                            echo "Smoke test failed with status: \$STATUS"
                             exit \$STATUS
                         fi
+                        echo "Smoke test passed!"
                     """
                 }
             }
@@ -126,18 +140,32 @@ pipeline {
                 script {
                     sh """
                         set -e
-                        timeout 30 kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 3000:80 >/tmp/timer-app-service-\${BUILD_NUMBER}.log 2>&1 &
+                        echo "Starting post-deployment health check..."
+                        
+                        # Start port-forward in background
+                        kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 3000:80 >/tmp/timer-app-service-\${BUILD_NUMBER}.log 2>&1 &
                         PF_PID=\$!
-                        sleep 10
+                        echo "Service port-forward started with PID: \$PF_PID"
+                        
+                        # Wait for port-forward to be ready
+                        sleep 15
+                        
+                        # Test the application
                         set +e
-                        curl -f http://localhost:3000
+                        curl -f http://localhost:3000 --connect-timeout 10 --max-time 30
                         STATUS=\$?
                         set -e
-                        kill \$PF_PID
-                        wait \$PF_PID || true
+                        
+                        # Clean up port-forward
+                        kill \$PF_PID 2>/dev/null || true
+                        wait \$PF_PID 2>/dev/null || true
+                        
+                        echo "Health check status: \$STATUS"
                         if [ \$STATUS -ne 0 ]; then
+                            echo "Health check failed with status: \$STATUS"
                             exit \$STATUS
                         fi
+                        echo "Health check passed!"
                     """
                 }
             }

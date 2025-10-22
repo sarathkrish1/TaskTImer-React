@@ -26,12 +26,12 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    def image = docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
-                    def imageLatest = docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:latest")
-                    
-                    // Tag images for Docker Hub
-                    image.tag("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
-                    imageLatest.tag("${DOCKER_REGISTRY}/${IMAGE_NAME}:latest")
+                    // Build image for minikube Docker registry
+                    sh """
+                        eval \$(minikube docker-env)
+                        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                        docker build -t ${IMAGE_NAME}:latest .
+                    """
                 }
             }
         }
@@ -39,10 +39,8 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    docker.withRegistry("https://index.docker.io/v1/", "${DOCKER_CREDENTIALS}") {
-                        docker.image("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}").push()
-                        docker.image("${DOCKER_REGISTRY}/${IMAGE_NAME}:latest").push()
-                    }
+                    // Skip Docker Hub push for local development
+                    echo "Using local Docker images for minikube deployment"
                 }
             }
         }
@@ -78,9 +76,9 @@ pipeline {
                     
                     // Port forward and test
                     sh """
-                        timeout 30 kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 8080:80 &
+                        timeout 30 kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 3000:80 &
                         sleep 10
-                        curl -f http://localhost:8080 || exit 1
+                        curl -f http://localhost:3000 || exit 1
                         pkill -f "kubectl port-forward"
                     """
                 }

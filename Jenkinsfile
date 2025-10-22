@@ -1,15 +1,14 @@
 pipeline {
     agent any
-    
+
     environment {
-        DOCKER_REGISTRY = 'tharunk03'  // Your Docker Hub username
+        DOCKER_REGISTRY = 'tharunk03'
         IMAGE_NAME = 'timer-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
         KUBECONFIG = credentials('kubeconfig')
-        DOCKER_CREDENTIALS = credentials('docker-registry-credentials')
         KUBE_NAMESPACE = 'timer-app'
     }
-    
+
     stages {
         stage('Checkout') {
             steps {
@@ -22,11 +21,10 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Build image for minikube Docker registry
                     sh """
                         eval \$(minikube docker-env)
                         docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
@@ -35,116 +33,161 @@ pipeline {
                 }
             }
         }
-        
-        stage('Push Docker Image') {
+
+        stage('Prepare Manifests') {
             steps {
                 script {
-                    // Skip Docker Hub push for local development
-                    echo "Using local Docker images for minikube deployment"
+                    sh """
+                        sed -i.bak "s/newTag: .*/newTag: ${IMAGE_TAG}/" k8s/kustomization.yaml
+                        rm -f k8s/kustomization.yaml.bak
+                    """
+                    sh "kubectl apply -k k8s/"
                 }
             }
         }
-        
-        stage('Deploy to Kubernetes') {
+
+        stage('Blue-Green Deploy') {
             steps {
                 script {
-                    // Update image tag in kustomization.yaml
+                    def currentColor = sh(
+                        script: "kubectl get service timer-app-service -n ${KUBE_NAMESPACE} -o jsonpath='{.spec.selector.track}' 2>/dev/null || true",
+                        returnStdout: true
+                    ).trim()
+
+                    if (!currentColor) {
+                        currentColor = 'blue'
+                    }
+
+                    env.ACTIVE_COLOR = currentColor
+                    env.TARGET_COLOR = currentColor == 'blue' ? 'green' : 'blue'
+
+                    echo "Active color: ${env.ACTIVE_COLOR} -> Target color: ${env.TARGET_COLOR}"
+
+                    def targetDeployment = "timer-app-${env.TARGET_COLOR}"
+
                     sh """
-                        sed -i '' 's/newTag: .*/newTag: ${IMAGE_TAG}/' k8s/kustomization.yaml
-                    """
-                    
-                    // Deploy to Kubernetes
-                    sh """
-                        kubectl apply -k k8s/
-                    """
-                    
-                    // Wait for deployment to be ready
-                    sh """
-                        kubectl rollout status deployment/timer-app-deployment -n ${KUBE_NAMESPACE} --timeout=300s
+                        kubectl set image deployment/${targetDeployment} timer-app=${IMAGE_NAME}:${IMAGE_TAG} -n ${KUBE_NAMESPACE}
+                        kubectl rollout status deployment/${targetDeployment} -n ${KUBE_NAMESPACE} --timeout=300s
+                        kubectl wait --for=condition=available deployment/${targetDeployment} -n ${KUBE_NAMESPACE} --timeout=300s
+                        kubectl wait --for=condition=ready pod -l app=timer-app,track=${env.TARGET_COLOR} -n ${KUBE_NAMESPACE} --timeout=300s
                     """
                 }
             }
         }
-        
-        stage('Health Check') {
+
+        stage('Smoke Test New Color') {
             steps {
                 script {
-                    // Wait for pods to be ready
                     sh """
-                        kubectl wait --for=condition=ready pod -l app=timer-app -n ${KUBE_NAMESPACE} --timeout=300s
-                    """
-                    
-                    // Port forward and test
-                    sh """
-                        timeout 30 kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 3000:80 &
+                        set -e
+                        POD_NAME=\$(kubectl get pods -n ${KUBE_NAMESPACE} -l app=timer-app,track=${env.TARGET_COLOR} -o jsonpath='{.items[0].metadata.name}')
+                        kubectl port-forward -n ${KUBE_NAMESPACE} pod/\$POD_NAME 3001:80 >/tmp/timer-app-bluegreen-\${BUILD_NUMBER}.log 2>&1 &
+                        PF_PID=\$!
                         sleep 10
-                        curl -f http://localhost:3000 || exit 1
-                        pkill -f "kubectl port-forward"
+                        set +e
+                        curl -f http://localhost:3001
+                        STATUS=\$?
+                        set -e
+                        kill \$PF_PID
+                        wait \$PF_PID || true
+                        if [ \$STATUS -ne 0 ]; then
+                            exit \$STATUS
+                        fi
                     """
                 }
             }
         }
-        
-        stage('Cleanup Old Images') {
+
+        stage('Switch Traffic') {
             steps {
                 script {
-                    // Keep only last 5 images
                     sh """
+                        kubectl patch service timer-app-service -n ${KUBE_NAMESPACE} --type=merge -p '{"spec":{"selector":{"app":"timer-app","track":"${env.TARGET_COLOR}"}}}'
+                    """
+
+                    if (env.ACTIVE_COLOR && env.ACTIVE_COLOR != env.TARGET_COLOR) {
+                        sh """
+                            kubectl scale deployment/timer-app-${env.ACTIVE_COLOR} -n ${KUBE_NAMESPACE} --replicas=1
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Post-Deployment Health Check') {
+            steps {
+                script {
+                    sh """
+                        set -e
+                        timeout 30 kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 3000:80 >/tmp/timer-app-service-\${BUILD_NUMBER}.log 2>&1 &
+                        PF_PID=\$!
+                        sleep 10
+                        set +e
+                        curl -f http://localhost:3000
+                        STATUS=\$?
+                        set -e
+                        kill \$PF_PID
+                        wait \$PF_PID || true
+                        if [ \$STATUS -ne 0 ]; then
+                            exit \$STATUS
+                        fi
+                    """
+                }
+            }
+        }
+
+        stage('Housekeeping') {
+            steps {
+                script {
+                    sh """
+                        eval \$(minikube docker-env)
                         docker image prune -f
-                        kubectl get images -n ${KUBE_NAMESPACE} --sort-by=.metadata.creationTimestamp | tail -n +6 | awk '{print \$1}' | xargs -r kubectl delete image -n ${KUBE_NAMESPACE}
                     """
                 }
             }
         }
     }
-    
+
     post {
         always {
-            // Clean up workspace
-            cleanWs()
+            script {
+                try {
+                    cleanWs()
+                } catch (Exception e) {
+                    echo "Warning: Could not clean workspace: ${e.getMessage()}"
+                }
+            }
         }
-        
+
         success {
-            echo "✅ Pipeline completed successfully!"
-            echo "🚀 Timer app deployed with image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-            
-            // Send success notification
             script {
-                def message = """
-                ✅ Timer App Deployment Successful!
-                
-                📦 Image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
-                🔗 Commit: ${env.GIT_COMMIT_SHORT}
-                🏗️ Build: ${env.BUILD_NUMBER}
-                ⏰ Time: ${new Date()}
-                
-                🌐 Access: kubectl port-forward -n timer-app service/timer-app-service 8080:80
-                """
-                // Add your notification logic here (Slack, email, etc.)
+                try {
+                    echo "✅ Pipeline completed successfully!"
+                    if (env.TARGET_COLOR) {
+                        echo "🚀 Timer app deployed to ${env.TARGET_COLOR} with image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                    } else {
+                        echo "🚀 Timer app deployed successfully!"
+                    }
+                } catch (Exception e) {
+                    echo "✅ Pipeline completed successfully!"
+                }
             }
         }
-        
+
         failure {
-            echo "❌ Pipeline failed!"
-            
-            // Send failure notification
             script {
-                def message = """
-                ❌ Timer App Deployment Failed!
-                
-                🔗 Commit: ${env.GIT_COMMIT_SHORT}
-                🏗️ Build: ${env.BUILD_NUMBER}
-                ⏰ Time: ${new Date()}
-                
-                📋 Check Jenkins logs for details.
-                """
-                // Add your notification logic here
+                try {
+                    echo "❌ Pipeline failed!"
+                    if (env.ACTIVE_COLOR && env.ACTIVE_COLOR.trim() && env.TARGET_COLOR && env.TARGET_COLOR.trim()) {
+                        sh """
+                            kubectl patch service timer-app-service -n ${KUBE_NAMESPACE} --type=merge -p '{"spec":{"selector":{"app":"timer-app","track":"${env.ACTIVE_COLOR}"}}}' || true
+                            kubectl rollout undo deployment/timer-app-${env.TARGET_COLOR} -n ${KUBE_NAMESPACE} || true
+                        """
+                    }
+                } catch (Exception e) {
+                    echo "❌ Pipeline failed! Error: ${e.getMessage()}"
+                }
             }
-            
-            // Rollback deployment
-            sh """
-                kubectl rollout undo deployment/timer-app-deployment -n ${KUBE_NAMESPACE}
-            """
         }
     }
 }

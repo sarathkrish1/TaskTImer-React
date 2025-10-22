@@ -2,11 +2,12 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_REGISTRY = 'your-registry.com'
+        DOCKER_REGISTRY = 'tharunk03'  // Your Docker Hub username
         IMAGE_NAME = 'timer-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
         KUBECONFIG = credentials('kubeconfig')
         DOCKER_CREDENTIALS = credentials('docker-registry-credentials')
+        KUBE_NAMESPACE = 'timer-app'
     }
     
     stages {
@@ -27,6 +28,10 @@ pipeline {
                 script {
                     def image = docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
                     def imageLatest = docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:latest")
+                    
+                    // Tag images for Docker Hub
+                    image.tag("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
+                    imageLatest.tag("${DOCKER_REGISTRY}/${IMAGE_NAME}:latest")
                 }
             }
         }
@@ -34,7 +39,7 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    docker.withRegistry("https://${DOCKER_REGISTRY}", "${DOCKER_CREDENTIALS}") {
+                    docker.withRegistry("https://index.docker.io/v1/", "${DOCKER_CREDENTIALS}") {
                         docker.image("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}").push()
                         docker.image("${DOCKER_REGISTRY}/${IMAGE_NAME}:latest").push()
                     }
@@ -47,7 +52,7 @@ pipeline {
                 script {
                     // Update image tag in kustomization.yaml
                     sh """
-                        sed -i 's/newTag: .*/newTag: ${IMAGE_TAG}/' k8s/kustomization.yaml
+                        sed -i '' 's/newTag: .*/newTag: ${IMAGE_TAG}/' k8s/kustomization.yaml
                     """
                     
                     // Deploy to Kubernetes
@@ -57,7 +62,7 @@ pipeline {
                     
                     // Wait for deployment to be ready
                     sh """
-                        kubectl rollout status deployment/timer-app-deployment -n timer-app --timeout=300s
+                        kubectl rollout status deployment/timer-app-deployment -n ${KUBE_NAMESPACE} --timeout=300s
                     """
                 }
             }
@@ -68,12 +73,12 @@ pipeline {
                 script {
                     // Wait for pods to be ready
                     sh """
-                        kubectl wait --for=condition=ready pod -l app=timer-app -n timer-app --timeout=300s
+                        kubectl wait --for=condition=ready pod -l app=timer-app -n ${KUBE_NAMESPACE} --timeout=300s
                     """
                     
                     // Port forward and test
                     sh """
-                        timeout 30 kubectl port-forward -n timer-app service/timer-app-service 8080:80 &
+                        timeout 30 kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 8080:80 &
                         sleep 10
                         curl -f http://localhost:8080 || exit 1
                         pkill -f "kubectl port-forward"
@@ -88,7 +93,7 @@ pipeline {
                     // Keep only last 5 images
                     sh """
                         docker image prune -f
-                        kubectl get images -n timer-app --sort-by=.metadata.creationTimestamp | tail -n +6 | awk '{print \$1}' | xargs -r kubectl delete image -n timer-app
+                        kubectl get images -n ${KUBE_NAMESPACE} --sort-by=.metadata.creationTimestamp | tail -n +6 | awk '{print \$1}' | xargs -r kubectl delete image -n ${KUBE_NAMESPACE}
                     """
                 }
             }
@@ -140,7 +145,7 @@ pipeline {
             
             // Rollback deployment
             sh """
-                kubectl rollout undo deployment/timer-app-deployment -n timer-app
+                kubectl rollout undo deployment/timer-app-deployment -n ${KUBE_NAMESPACE}
             """
         }
     }

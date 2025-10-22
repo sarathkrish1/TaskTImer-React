@@ -84,26 +84,15 @@ pipeline {
                         echo "Waiting for pod to be fully ready to serve requests..."
                         sleep 30
                         
-                        # Test the application using service port-forward
-                        echo "Testing application using service port-forward..."
+                        # Test the application using kubectl exec
+                        echo "Testing application using kubectl exec..."
                         set +e
                         for i in {1..3}; do
                             echo "Attempt \$i/3..."
                             
-                            # Start service port-forward with timeout
-                            timeout 30 kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 3002:80 >/dev/null 2>&1 &
-                            PF_PID=\$!
-                            
-                            # Wait for port-forward to be ready
-                            sleep 15
-                            
-                            # Test the application
-                            curl -f http://localhost:3002 --connect-timeout 10 --max-time 15
+                            # Test the application directly using kubectl exec
+                            kubectl exec -n ${KUBE_NAMESPACE} \$POD_NAME -- curl -f http://localhost:80 --connect-timeout 10 --max-time 15
                             STATUS=\$?
-                            
-                            # Clean up port-forward
-                            kill \$PF_PID 2>/dev/null || true
-                            wait \$PF_PID 2>/dev/null || true
                             
                             if [ \$STATUS -eq 0 ]; then
                                 echo "Test successful on attempt \$i"

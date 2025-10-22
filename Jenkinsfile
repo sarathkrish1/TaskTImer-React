@@ -84,33 +84,27 @@ pipeline {
                         echo "Waiting for pod to be fully ready to serve requests..."
                         sleep 30
                         
-                        # Start port-forward in background
-                        kubectl port-forward -n ${KUBE_NAMESPACE} pod/\$POD_NAME 3002:80 >/tmp/timer-app-bluegreen-\${BUILD_NUMBER}.log 2>&1 &
-                        PF_PID=\$!
-                        echo "Port-forward started with PID: \$PF_PID"
-                        
-                        # Wait for port-forward to be ready and verify it's working
-                        sleep 20
-                        
-                        # Verify port-forward is working
-                        echo "Verifying port-forward is working..."
-                        for i in {1..5}; do
-                            if curl -s http://localhost:3002 >/dev/null 2>&1; then
-                                echo "Port-forward verified on attempt \$i"
-                                break
-                            else
-                                echo "Port-forward not ready on attempt \$i, waiting..."
-                                sleep 5
-                            fi
-                        done
-                        
-                        # Test the application with retries
-                        echo "Testing application with retries..."
+                        # Test the application using service port-forward
+                        echo "Testing application using service port-forward..."
                         set +e
                         for i in {1..3}; do
                             echo "Attempt \$i/3..."
-                            curl -f http://localhost:3002 --connect-timeout 15 --max-time 30
+                            
+                            # Start service port-forward with timeout
+                            timeout 30 kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 3002:80 >/dev/null 2>&1 &
+                            PF_PID=\$!
+                            
+                            # Wait for port-forward to be ready
+                            sleep 15
+                            
+                            # Test the application
+                            curl -f http://localhost:3002 --connect-timeout 10 --max-time 15
                             STATUS=\$?
+                            
+                            # Clean up port-forward
+                            kill \$PF_PID 2>/dev/null || true
+                            wait \$PF_PID 2>/dev/null || true
+                            
                             if [ \$STATUS -eq 0 ]; then
                                 echo "Test successful on attempt \$i"
                                 break
@@ -123,10 +117,6 @@ pipeline {
                             fi
                         done
                         set -e
-                        
-                        # Clean up port-forward
-                        kill \$PF_PID 2>/dev/null || true
-                        wait \$PF_PID 2>/dev/null || true
                         
                         echo "Smoke test status: \$STATUS"
                         if [ \$STATUS -ne 0 ]; then

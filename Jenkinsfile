@@ -38,7 +38,7 @@ pipeline {
             steps {
                 script {
                     sh """
-                        sed -i.bak "s/newTag: .*/newTag: ${IMAGE_TAG}/" k8s/kustomization.yaml
+                        sed -i.bak "s/newTag: .*/newTag: \"${IMAGE_TAG}\"/" k8s/kustomization.yaml
                         rm -f k8s/kustomization.yaml.bak
                     """
                     sh "kubectl apply -k k8s/"

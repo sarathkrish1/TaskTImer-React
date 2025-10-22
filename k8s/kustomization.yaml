@@ -15,7 +15,6 @@ resources:
 
 commonLabels:
   app: timer-app
-  version: v1.0.0
 
 images:
 - name: timer-app

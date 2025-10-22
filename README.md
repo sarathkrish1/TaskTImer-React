@@ -11,10 +11,12 @@ Timer/
 ├── src/                          # React application source
 ├── k8s/                          # Kubernetes manifests
 │   ├── namespace.yaml
-│   ├── deployment.yaml
+│   ├── deployment-blue.yaml
+│   ├── deployment-green.yaml
 │   ├── service.yaml
 │   ├── ingress.yaml
-│   ├── hpa.yaml
+│   ├── hpa-blue.yaml
+│   ├── hpa-green.yaml
 │   ├── configmap.yaml
 │   └── kustomization.yaml
 ├── scripts/                      # Deployment scripts
@@ -54,31 +56,28 @@ Timer/
 ## 🚀 Pipeline Stages
 
 ### 1. **Checkout**
-- Clone repository
-- Extract commit hash for tagging
+- Clone repository and capture short commit hash for notifications.
 
 ### 2. **Build Docker Image**
-- Build image with build number tag
-- Build latest tag
-- Multi-stage build for optimization
+- Build the application image inside the Minikube Docker runtime with both build number and `latest` tags.
 
-### 3. **Push Docker Image**
-- Push to registry with authentication
-- Tag with build number and latest
+### 3. **Prepare Manifests**
+- Update `k8s/kustomization.yaml` with the new image tag and apply the manifest set (namespace, configmap, blue/green deployments, service, ingress, HPAs).
 
-### 4. **Deploy to Kubernetes**
-- Update image tag in kustomization
-- Apply Kubernetes manifests
-- Wait for rollout completion
+### 4. **Blue-Green Deploy**
+- Detect the live colour, update the idle colour deployment with the freshly built image, and wait for pods to become ready.
 
-### 5. **Health Check**
-- Verify pod readiness
-- Test application connectivity
-- Validate deployment success
+### 5. **Smoke Test New Colour**
+- Port-forward to a pod from the idle colour and perform a HTTP health probe.
 
-### 6. **Cleanup**
-- Remove old Docker images
-- Clean workspace
+### 6. **Switch Traffic**
+- Patch the service selector to route requests to the new colour and scale the previous colour down to a single replica.
+
+### 7. **Post-Deployment Health Check**
+- Port-forward the service to confirm the new colour serves traffic correctly.
+
+### 8. **Housekeeping**
+- Prune dangling Docker images inside the Minikube registry and clean the Jenkins workspace.
 
 ## 📋 Quick Start
 
@@ -139,13 +138,15 @@ kubectl port-forward -n timer-app service/timer-app-service 8080:80
 ### Check Deployment Status
 ```bash
 kubectl get all -n timer-app
-kubectl describe deployment timer-app-deployment -n timer-app
+kubectl describe deployment timer-app-blue -n timer-app
+kubectl describe deployment timer-app-green -n timer-app
 kubectl get events -n timer-app
 ```
 
 ### View Logs
 ```bash
-kubectl logs -n timer-app deployment/timer-app-deployment
+kubectl logs -n timer-app deployment/timer-app-blue
+kubectl logs -n timer-app deployment/timer-app-green
 kubectl logs -n timer-app -l app=timer-app
 ```
 
@@ -168,22 +169,24 @@ Pipeline automatically rolls back on failure.
 
 ### Manual Rollback
 ```bash
-kubectl rollout undo deployment/timer-app-deployment -n timer-app
-kubectl rollout status deployment/timer-app-deployment -n timer-app
+kubectl patch service timer-app-service -n timer-app --type=merge -p '{"spec":{"selector":{"app":"timer-app","track":"blue"}}}'
+kubectl rollout undo deployment/timer-app-green -n timer-app
+kubectl rollout status deployment/timer-app-blue -n timer-app
 ```
 
 ## 📈 Scaling
 
-The deployment includes Horizontal Pod Autoscaler (HPA):
-- **Min replicas:** 2
-- **Max replicas:** 10
+Each colour has its own Horizontal Pod Autoscaler (HPA):
+- **Min replicas:** 2 per colour
+- **Max replicas:** 10 per colour
 - **CPU threshold:** 70%
 - **Memory threshold:** 80%
 
 Monitor scaling:
 ```bash
 kubectl get hpa -n timer-app
-kubectl describe hpa timer-app-hpa -n timer-app
+kubectl describe hpa timer-app-blue-hpa -n timer-app
+kubectl describe hpa timer-app-green-hpa -n timer-app
 ```
 
 ## 🔒 Security Features
@@ -219,10 +222,10 @@ Modify `service.yaml` to use NodePort type.
 Update `k8s/configmap.yaml` for environment-specific configurations.
 
 ### Resource Limits
-Modify `k8s/deployment.yaml` for different resource requirements.
+Modify `k8s/deployment-blue.yaml` and `k8s/deployment-green.yaml` for different resource requirements.
 
 ### Scaling Policies
-Adjust `k8s/hpa.yaml` for different scaling behavior.
+Adjust `k8s/hpa-blue.yaml` and `k8s/hpa-green.yaml` for different scaling behavior.
 
 ## 🚨 Troubleshooting
 
@@ -273,4 +276,4 @@ For issues or questions:
 3. **Add security scanning** (Trivy, Snyk)
 4. **Configure notifications** (Slack, email)
 5. **Set up staging environment**
-6. **Implement blue-green deployments**
+6. **Automate canary experiments alongside blue-green**

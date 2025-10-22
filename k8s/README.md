@@ -6,10 +6,12 @@ This directory contains Kubernetes manifests for deploying the Timer application
 
 - `namespace.yaml` - Creates a dedicated namespace for the timer app
 - `configmap.yaml` - Nginx configuration for the application
-- `deployment.yaml` - Main application deployment with 3 replicas
+- `deployment-blue.yaml` - Blue deployment used for blue-green rollout
+- `deployment-green.yaml` - Green deployment used for blue-green rollout
 - `service.yaml` - ClusterIP service to expose the application internally
 - `ingress.yaml` - Ingress for external access (requires ingress controller)
-- `hpa.yaml` - Horizontal Pod Autoscaler for automatic scaling
+- `hpa-blue.yaml` - HPA configuration for the blue deployment
+- `hpa-green.yaml` - HPA configuration for the green deployment
 - `kustomization.yaml` - Kustomize configuration for easy deployment
 
 ## Prerequisites
@@ -28,10 +30,12 @@ kubectl apply -f k8s/
 # Or apply individually
 kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/deployment-blue.yaml
+kubectl apply -f k8s/deployment-green.yaml
 kubectl apply -f k8s/service.yaml
 kubectl apply -f k8s/ingress.yaml
-kubectl apply -f k8s/hpa.yaml
+kubectl apply -f k8s/hpa-blue.yaml
+kubectl apply -f k8s/hpa-green.yaml
 ```
 
 ### Using Kustomize:
@@ -54,7 +58,7 @@ kubectl get services -n timer-app
 # Check ingress
 kubectl get ingress -n timer-app
 
-# Check HPA
+# Check HPAs
 kubectl get hpa -n timer-app
 ```
 
@@ -66,9 +70,9 @@ kubectl get hpa -n timer-app
 
 ## Scaling
 
-The application will automatically scale based on CPU and memory usage:
-- Min replicas: 2
-- Max replicas: 10
+The application uses independent HPAs for the blue and green deployments:
+- Min replicas: 2 (per colour)
+- Max replicas: 10 (per colour)
 - CPU target: 70%
 - Memory target: 80%
 
@@ -76,10 +80,12 @@ The application will automatically scale based on CPU and memory usage:
 
 ```bash
 # View logs
-kubectl logs -n timer-app deployment/timer-app-deployment
+kubectl logs -n timer-app deployment/timer-app-blue
+kubectl logs -n timer-app deployment/timer-app-green
 
 # Describe deployment
-kubectl describe deployment -n timer-app timer-app-deployment
+kubectl describe deployment -n timer-app timer-app-blue
+kubectl describe deployment -n timer-app timer-app-green
 
 # Check events
 kubectl get events -n timer-app

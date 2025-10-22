@@ -1,24 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: timer-app-deployment
+  name: timer-app-green
   namespace: timer-app
   labels:
     app: timer-app
+    track: green
 spec:
   replicas: 3
   selector:
     matchLabels:
       app: timer-app
+      track: green
   template:
     metadata:
       labels:
         app: timer-app
+        track: green
     spec:
       containers:
       - name: timer-app
         image: timer-app:latest
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
         resources:

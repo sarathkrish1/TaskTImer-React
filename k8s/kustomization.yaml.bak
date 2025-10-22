@@ -6,12 +6,10 @@ namespace: timer-app
 resources:
 - namespace.yaml
 - configmap.yaml
-- deployment-blue.yaml
-- deployment-green.yaml
+- deployment.yaml
 - service.yaml
 - ingress.yaml
-- hpa-blue.yaml
-- hpa-green.yaml
+- hpa.yaml
 
 commonLabels:
   app: timer-app

@@ -33,7 +33,7 @@ function App() {
   const [timerSeconds, setTimerSeconds] = useState(defaultFocusSeconds)
   const [secondsRemaining, setSecondsRemaining] = useState(defaultFocusSeconds)
   const [isRunning, setIsRunning] = useState(false)
-  const [sessionNote, setSessionNote] = useState('Define why this sprint matters to stay locked in.')
+  const [sessionNote, setSessionNote] = useState('Define why this sprint matters to stay locked in while Jenkins auto-deploys your updates.')
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const initialTheme = resolvePreferredTheme()
     if (typeof document !== 'undefined') {

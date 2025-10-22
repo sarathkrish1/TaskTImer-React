@@ -144,18 +144,42 @@
   width: 100%;
   max-width: 1180px;
   margin: 0 auto;
-  padding: 56px 32px 72px;
+  padding: 24px 16px 48px;
   color: var(--content-strong);
   perspective: 1600px;
   isolation: isolate;
+}
+
+@media (min-width: 640px) {
+  #root {
+    padding: 40px 24px 56px;
+  }
+}
+
+@media (min-width: 1024px) {
+  #root {
+    padding: 56px 32px 72px;
+  }
 }
 
 .app-shell {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 20px;
   transform-style: preserve-3d;
+}
+
+@media (min-width: 640px) {
+  .app-shell {
+    gap: 28px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-shell {
+    gap: 32px;
+  }
 }
 
 .app-backdrop {
@@ -174,21 +198,53 @@
 
 .content-grid {
   display: grid;
-  gap: 28px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  grid-template-columns: 1fr;
   transform-style: preserve-3d;
+}
+
+@media (min-width: 640px) {
+  .content-grid {
+    gap: 24px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .content-grid {
+    gap: 28px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
 }
 
 .card {
   position: relative;
   background: var(--surface);
-  border-radius: 28px;
-  padding: 32px;
+  border-radius: 20px;
+  padding: 20px;
   border: 1px solid var(--card-border);
   box-shadow: var(--card-shadow);
-  transform: translateZ(30px) rotateX(0.6deg) rotateY(-0.6deg);
+  transform: translateZ(20px) rotateX(0.3deg) rotateY(-0.3deg);
   transition: transform 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease;
-  backdrop-filter: blur(22px) saturate(120%);
+  backdrop-filter: blur(16px) saturate(120%);
+}
+
+@media (min-width: 640px) {
+  .card {
+    border-radius: 24px;
+    padding: 24px;
+    transform: translateZ(25px) rotateX(0.4deg) rotateY(-0.4deg);
+    backdrop-filter: blur(20px) saturate(120%);
+  }
+}
+
+@media (min-width: 1024px) {
+  .card {
+    border-radius: 28px;
+    padding: 32px;
+    transform: translateZ(30px) rotateX(0.6deg) rotateY(-0.6deg);
+    backdrop-filter: blur(22px) saturate(120%);
+  }
 }
 
 .card::before {
@@ -217,9 +273,15 @@
 }
 
 .card:hover {
-  transform: translateZ(60px) rotateX(1deg) rotateY(-1.2deg) translateY(-6px);
+  transform: translateZ(40px) rotateX(0.8deg) rotateY(-0.8deg) translateY(-4px);
   box-shadow: var(--card-hover-shadow);
   border-color: var(--card-hover-border);
+}
+
+@media (min-width: 1024px) {
+  .card:hover {
+    transform: translateZ(60px) rotateX(1deg) rotateY(-1.2deg) translateY(-6px);
+  }
 }
 
 .card:hover::after {
@@ -228,14 +290,40 @@
 }
 
 .section-heading {
-  margin-bottom: 22px;
+  margin-bottom: 16px;
+}
+
+@media (min-width: 640px) {
+  .section-heading {
+    margin-bottom: 20px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .section-heading {
+    margin-bottom: 22px;
+  }
 }
 
 .section-heading h2,
 .section-heading h3 {
   margin: 0;
-  font-size: 1.45rem;
+  font-size: 1.25rem;
   letter-spacing: -0.01em;
+}
+
+@media (min-width: 640px) {
+  .section-heading h2,
+  .section-heading h3 {
+    font-size: 1.35rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .section-heading h2,
+  .section-heading h3 {
+    font-size: 1.45rem;
+  }
 }
 
 .section-heading p {
@@ -255,15 +343,27 @@ input[type='number'],
 input[type='text'],
 textarea {
   width: 100%;
-  padding: 12px 16px;
-  border-radius: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
   border: 1px solid var(--input-border);
   background: var(--input-background);
   color: var(--content-strong);
-  font-size: 1rem;
+  font-size: 16px;
   transition: border 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   resize: vertical;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+@media (min-width: 640px) {
+  input[type='number'],
+  input[type='text'],
+  textarea {
+    padding: 12px 16px;
+    border-radius: 14px;
+    font-size: 1rem;
+  }
 }
 
 input:focus,
@@ -284,12 +384,23 @@ button.primary {
   background: linear-gradient(140deg, var(--brand-accent), var(--brand-accent-strong));
   color: var(--primary-text-on-accent);
   border: none;
-  border-radius: 14px;
-  padding: 12px 22px;
+  border-radius: 12px;
+  padding: 14px 24px;
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.25s ease;
   box-shadow: var(--button-primary-shadow);
+  min-height: 48px;
+  font-size: 16px;
+}
+
+@media (min-width: 640px) {
+  button.primary {
+    border-radius: 14px;
+    padding: 12px 22px;
+    min-height: 44px;
+    font-size: 1rem;
+  }
 }
 
 button.primary:disabled {
@@ -307,11 +418,22 @@ button.ghost {
   background: transparent;
   color: var(--content-soft);
   border: 1px solid var(--ghost-border);
-  border-radius: 14px;
-  padding: 11px 20px;
+  border-radius: 12px;
+  padding: 13px 22px;
   cursor: pointer;
   transition: border 0.2s ease, color 0.2s ease, transform 0.2s ease, background 0.2s ease;
   backdrop-filter: blur(4px);
+  min-height: 48px;
+  font-size: 16px;
+}
+
+@media (min-width: 640px) {
+  button.ghost {
+    border-radius: 14px;
+    padding: 11px 20px;
+    min-height: 44px;
+    font-size: 1rem;
+  }
 }
 
 button.ghost:hover:not(:disabled) {

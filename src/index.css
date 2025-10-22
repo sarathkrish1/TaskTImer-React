@@ -5,6 +5,12 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
 }
 
 * {
@@ -23,6 +29,7 @@ body {
   perspective: 1600px;
   overflow-x: hidden;
   transition: background 0.4s ease, color 0.4s ease;
+  -webkit-overflow-scrolling: touch;
 }
 
 :root[data-theme='light'] body {
@@ -85,6 +92,33 @@ a:hover {
 
 button {
   font: inherit;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Allow text selection in input fields */
+input, textarea {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+/* Mobile-specific improvements */
+@media (max-width: 768px) {
+  body {
+    perspective: 800px;
+  }
+  
+  :root:not([data-theme='light']) body::before {
+    filter: blur(60px);
+    transform: translateZ(-200px) scale(1.2);
+  }
+  
+  :root[data-theme='light'] body::before {
+    filter: blur(80px);
+    transform: translateZ(-200px) scale(1.15);
+  }
 }
 
 @keyframes aurora-pan {

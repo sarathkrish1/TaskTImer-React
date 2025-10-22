@@ -1,16 +1,42 @@
 .plan-board {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 28px;
+  grid-template-columns: 1fr;
+  gap: 20px;
   grid-column: 1 / -1;
   transform-style: preserve-3d;
+}
+
+@media (min-width: 640px) {
+  .plan-board {
+    gap: 24px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .plan-board {
+    gap: 28px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
 }
 
 .plan-card {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 18px;
   position: relative;
+}
+
+@media (min-width: 640px) {
+  .plan-card {
+    gap: 20px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .plan-card {
+    gap: 22px;
+  }
 }
 
 .plan-card::after {
@@ -38,15 +64,26 @@
 
 .task-item {
   display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   align-items: flex-start;
-  padding: 16px 20px;
-  border-radius: 18px;
+  padding: 16px;
+  border-radius: 16px;
   background: var(--task-background);
   border: 1px solid var(--task-border);
   transition: border 0.2s ease, transform 0.25s ease, box-shadow 0.25s ease;
   box-shadow: var(--task-shadow);
+}
+
+@media (min-width: 640px) {
+  .task-item {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 16px 20px;
+    border-radius: 18px;
+  }
 }
 
 .task-item:hover {
@@ -59,10 +96,17 @@
 .task-item label {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
-  min-width: 220px;
-  flex: 1 1 260px;
+  gap: 12px;
+  width: 100%;
   cursor: pointer;
+}
+
+@media (min-width: 640px) {
+  .task-item label {
+    min-width: 220px;
+    flex: 1 1 260px;
+    gap: 14px;
+  }
 }
 
 .task-item label span {
@@ -76,6 +120,7 @@
   width: 20px;
   height: 20px;
   accent-color: var(--brand-accent);
+  flex-shrink: 0;
 }
 
 .task-item.completed span {
@@ -85,12 +130,23 @@
 
 .task-actions {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
   flex: 0 0 auto;
-  margin-left: auto;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+}
+
+@media (min-width: 640px) {
+  .task-actions {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    width: auto;
+  }
 }
 
 .points-editor {
@@ -152,12 +208,14 @@
   color: var(--content-muted);
 }
 
-@media (max-width: 640px) {
-  .task-form {
-    flex-direction: column;
-  }
+.task-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-  .task-actions {
-    width: 100%;
+@media (min-width: 640px) {
+  .task-form {
+    flex-direction: row;
   }
 }

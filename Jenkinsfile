@@ -142,23 +142,32 @@ pipeline {
                         set -e
                         echo "Starting post-deployment health check..."
                         
-                        # Start port-forward in background
-                        kubectl port-forward -n ${KUBE_NAMESPACE} service/timer-app-service 3000:80 >/tmp/timer-app-service-\${BUILD_NUMBER}.log 2>&1 &
-                        PF_PID=\$!
-                        echo "Service port-forward started with PID: \$PF_PID"
+                        # Get a running pod from the active deployment
+                        POD_NAME=\$(kubectl get pods -n ${KUBE_NAMESPACE} -l app=timer-app,track=${TARGET_COLOR} --field-selector=status.phase=Running -o jsonpath='{.items[-1].metadata.name}')
+                        echo "Testing pod: \$POD_NAME"
                         
-                        # Wait for port-forward to be ready
-                        sleep 15
-                        
-                        # Test the application
+                        # Test the application using kubectl exec
+                        echo "Testing application using kubectl exec..."
                         set +e
-                        curl -f http://localhost:3000 --connect-timeout 10 --max-time 30
-                        STATUS=\$?
+                        for i in {1..3}; do
+                            echo "Attempt \$i/3..."
+                            
+                            # Test the application directly using kubectl exec
+                            kubectl exec -n ${KUBE_NAMESPACE} \$POD_NAME -- curl -f http://localhost:80 --connect-timeout 10 --max-time 15
+                            STATUS=\$?
+                            
+                            if [ \$STATUS -eq 0 ]; then
+                                echo "Health check successful on attempt \$i"
+                                break
+                            else
+                                echo "Health check failed on attempt \$i with status: \$STATUS"
+                                if [ \$i -lt 3 ]; then
+                                    echo "Retrying in 10 seconds..."
+                                    sleep 10
+                                fi
+                            fi
+                        done
                         set -e
-                        
-                        # Clean up port-forward
-                        kill \$PF_PID 2>/dev/null || true
-                        wait \$PF_PID 2>/dev/null || true
                         
                         echo "Health check status: \$STATUS"
                         if [ \$STATUS -ne 0 ]; then

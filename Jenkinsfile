@@ -1,40 +1,47 @@
 pipeline {
     agent any
+
     environment {
         IMAGE_NAME = 'sarathkrish1/timer-app'
-        DOCKER_HOST = 'tcp://host.docker.internal:2375'  // <-- THIS IS KEY
+        DOCKER_HOST = 'tcp://host.docker.internal:2375'
     }
+
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
                 script {
                     env.TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-                    echo "Build Tag: ${env.TAG}"
+                    echo "Building image: ${IMAGE_NAME}:${TAG}"
                 }
             }
         }
 
         stage('Build & Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-hub-credentials',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
                     sh '''
-                        echo "Testing Docker connection..."
+                        # Force TCP connection
+                        export DOCKER_HOST=tcp://host.docker.internal:2375
+
+                        echo "=== DOCKER VERSION ==="
                         docker version
 
-                        echo "Logging in to Docker Hub..."
+                        echo "=== LOGIN TO DOCKER HUB ==="
                         echo $PASS | docker login -u sarathkrish1 --password-stdin
 
-                        echo "Building image: ${IMAGE_NAME}:${TAG}"
+                        echo "=== BUILD DOCKER IMAGE ==="
                         docker build -t ${IMAGE_NAME}:${TAG} -t ${IMAGE_NAME}:latest .
 
-                        echo "Pushing ${IMAGE_NAME}:${TAG}..."
+                        echo "=== PUSH TO DOCKER HUB ==="
                         docker push ${IMAGE_NAME}:${TAG}
-
-                        echo "Pushing ${IMAGE_NAME}:latest..."
                         docker push ${IMAGE_NAME}:latest
 
-                        echo "Build & Push SUCCESS!"
+                        echo "SUCCESS: IMAGE PUSHED!"
                     '''
                 }
             }
@@ -43,20 +50,23 @@ pipeline {
         stage('Cleanup') {
             steps {
                 sh '''
-                    echo "Pruning dangling images..."
                     docker system prune -f || true
                 '''
-                echo 'CI/CD PIPELINE COMPLETE!'
+                echo "CI/CD PIPELINE COMPLETE!"
             }
         }
     }
 
     post {
         success {
-            echo "SUCCESS: IMAGE LIVE ON DOCKER HUB!"
+            echo "LIVE ON DOCKER HUB!"
             echo "https://hub.docker.com/r/sarathkrish1/timer-app/tags"
         }
-        failure { echo 'Build failed!' }
-        always { cleanWs() }
+        failure {
+            echo "Build failed. Check Docker Desktop TCP settings."
+        }
+        always {
+            cleanWs()
+        }
     }
 }

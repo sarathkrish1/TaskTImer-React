@@ -1,7 +1,7 @@
 pipeline {
     agent any
     parameters {
-        string(name: 'MINIKUBE_IP', defaultValue: '192.168.49.2', description: 'Minikube IP')
+        string(name: 'MINIKUBE_IP', defaultValue: '192.168.49.2', description: 'Run `minikube ip` and paste here')
     }
     environment {
         IMAGE_NAME = 'sarathkrish1/timer-app'
@@ -34,7 +34,7 @@ pipeline {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     sh '''
                     mkdir -p ~/.kube
-                    cp $KUBECONFIG ~/.kube/config
+                    cp \$KUBECONFIG ~/.kube/config
                     kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
                     kubectl apply -k k8s/
                     '''
@@ -45,10 +45,10 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     sh '''
-                    cp $KUBECONFIG ~/.kube/config
-                    LIVE=$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}' 2>/dev/null || echo blue)
-                    TARGET=$([ "$LIVE" = "blue" ] && echo green || echo blue)
-                    kubectl rollout status deployment/timer-app-${TARGET} -n ${NAMESPACE} --timeout=180s
+                    cp \$KUBECONFIG ~/.kube/config
+                    LIVE=\$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}' 2>/dev/null || echo blue)
+                    TARGET=\$(if [ "\$LIVE" = "blue" ]; then echo green; else echo blue; fi)
+                    kubectl rollout status deployment/timer-app-\$TARGET -n ${NAMESPACE} --timeout=180s
                     '''
                 }
             }
@@ -57,11 +57,11 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     sh '''
-                    cp $KUBECONFIG ~/.kube/config
-                    POD=$(kubectl get pod -n ${NAMESPACE} -l app=timer-app -o jsonpath='{.items[0].metadata.name}')
-                    kubectl port-forward -n ${NAMESPACE} pod/$POD 3000:3000 > /dev/null 2>&1 &
+                    cp \$KUBECONFIG ~/.kube/config
+                    POD=\$(kubectl get pod -n ${NAMESPACE} -l app=timer-app -o jsonpath='{.items[0].metadata.name}')
+                    kubectl port-forward -n ${NAMESPACE} pod/\$POD 3000:3000 > /dev/null 2>&1 &
                     sleep 10
-                    curl -f http://localhost:3000 && kill $!
+                    curl -f http://localhost:3000 && kill \$!
                     '''
                 }
             }
@@ -70,10 +70,10 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     sh '''
-                    cp $KUBECONFIG ~/.kube/config
-                    LIVE=$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}')
-                    TARGET=$([ "$LIVE" = "blue" ] && echo green || echo blue)
-                    kubectl patch svc timer-app-service -n ${NAMESPACE} -p "{\\"spec\\":{\\"selector\\":{\\"track\\":\\"${TARGET}\\"}}}"
+                    cp \$KUBECONFIG ~/.kube/config
+                    LIVE=\$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}')
+                    TARGET=\$(if [ "\$LIVE" = "blue" ]; then echo green; else echo blue; fi)
+                    kubectl patch svc timer-app-service -n ${NAMESPACE} -p "{\\"spec\\":{\\"selector\\":{\\"track\\":\\"\$TARGET\\"}}}"
                     '''
                 }
             }
@@ -81,7 +81,7 @@ pipeline {
         stage('Verify') {
             steps {
                 sh '''
-                echo "${MINIKUBE_IP} timer-app.local" | tee -a /tmp/hosts
+                echo "${MINIKUBE_IP} timer-app.local" >> /tmp/hosts
                 curl -f http://timer-app.local
                 '''
             }

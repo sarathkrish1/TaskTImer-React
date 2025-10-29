@@ -28,7 +28,7 @@ pipeline {
                         echo "=== LOGIN TO DOCKER HUB VIA API ==="
                         curl -s -X POST "${DOCKER_API}/auth" \
                           -H "Content-Type: application/json" \
-                          -d '{"username": "sarathkrish1", "password": "'"$PASS"'"}'
+                          -d '{"username": "sarathkrish1", "password": "'"$PASS"'"}' || exit 1
 
                         echo "=== BUILD IMAGE ==="
                         tar -czf build-context.tar.gz .
@@ -53,6 +53,9 @@ pipeline {
         success {
             echo "LIVE ON DOCKER HUB!"
             echo "https://hub.docker.com/r/sarathkrish1/timer-app"
+        }
+        failure {
+            echo "Build failed. Check Docker Desktop TCP and curl output."
         }
         always { cleanWs() }
     }

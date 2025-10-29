@@ -17,7 +17,7 @@ pipeline {
             }
         }
 
-        stage('Build & Push via API') {
+        stage('Build & Push via Docker API') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'docker-hub-credentials',
@@ -25,26 +25,24 @@ pipeline {
                     passwordVariable: 'PASS'
                 )]) {
                     sh '''
-                        # 1. LOGIN VIA API
-                        echo "Logging in to Docker Hub..."
+                        echo "=== LOGIN TO DOCKER HUB VIA API ==="
                         curl -s -X POST "${DOCKER_API}/auth" \
                           -H "Content-Type: application/json" \
-                          -d '{"username": "sarathkrish1", "password": "'"$PASS"'"}' > /dev/null
+                          -d '{"username": "sarathkrish1", "password": "'"$PASS"'"}'
 
-                        # 2. BUILD IMAGE
-                        echo "Building image..."
+                        echo "=== BUILD IMAGE ==="
                         tar -czf build-context.tar.gz .
                         curl -s -X POST "${DOCKER_API}/build?t=${IMAGE_NAME}:${TAG}&t=${IMAGE_NAME}:latest" \
                           --data-binary @build-context.tar.gz \
                           -H "Content-Type: application/x-tar" > build.log
-                        cat build.log | grep -i "success"
+                        grep -i "success" build.log && echo "BUILD SUCCESS!"
 
-                        # 3. PUSH IMAGE
-                        echo "Pushing ${IMAGE_NAME}:${TAG}..."
+                        echo "=== PUSH IMAGE ==="
                         curl -s -X POST "${DOCKER_API}/images/${IMAGE_NAME}:${TAG}/push" > push.log
-                        cat push.log | grep -i "digest"
+                        grep -i "digest" push.log && echo "PUSH SUCCESS!"
 
-                        echo "PUSHED SUCCESSFULLY!"
+                        echo "=== DONE ==="
+                        rm -f build-context.tar.gz build.log push.log
                     '''
                 }
             }

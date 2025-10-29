@@ -1,15 +1,15 @@
 pipeline {
-    agent {
-        docker {
-            image 'codewind/docker-dind'
-            args '-v /var/run/docker.sock:/var/run/docker.sock'
-        }
-    }
+    agent any
 
     parameters {
         string(name: 'REGISTRY',   defaultValue: 'docker.io/sarathkris1', description: 'Container registry (e.g., docker.io/<user> or ghcr.io/<org>)')
         string(name: 'IMAGE_NAME', defaultValue: 'timer-app',             description: 'Image/repository name')
         string(name: 'NAMESPACE',  defaultValue: 'timer-app',             description: 'Kubernetes namespace')
+        booleanParam(name: 'DEMO_ONLY',   defaultValue: true,  description: 'Demo-only Blue/Green flip (no build/push)')
+        booleanParam(name: 'SKIP_DOCKER', defaultValue: true,  description: 'Skip Docker build on nodes without Docker')
+        booleanParam(name: 'SKIP_PUSH',   defaultValue: true,  description: 'Skip pushing image to registry (no creds needed)')
+        booleanParam(name: 'SKIP_DEPLOY', defaultValue: true,  description: 'Skip Kubernetes deployment (no kubeconfig needed)')
+        booleanParam(name: 'SKIP_SMOKE',  defaultValue: true,  description: 'Skip smoke tests and traffic switch')
     }
 
     environment {
@@ -26,18 +26,19 @@ pipeline {
         stage('Setup Tools') {
             steps {
                 sh '''
+                    set -e
                     # Update and install required packages
                     apt-get update
-                    apt-get install -y curl wget apt-transport-https gnupg2
+                    apt-get install -y curl wget apt-transport-https gnupg2 ca-certificates
 
-                    # Install kubectl
-                    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                    # Install kubectl (client-only)
+                    curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
                     chmod +x kubectl
                     mv kubectl /usr/local/bin/
 
                     # Test tools
-                    docker --version
                     kubectl version --client
+                    # docker might not be present on the node; skip checking it
                 '''
             }
         }
@@ -49,22 +50,50 @@ pipeline {
             }
         }
 
+        stage('Blue/Green Demo Switch') {
+            when { expression { return params.DEMO_ONLY } }
+            steps {
+                script {
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                        withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
+                            sh '''#!/bin/bash
+set -euo pipefail
+echo "🔵🟢 Demo: Blue/Green flip in namespace: ${NAMESPACE}"
+ACTIVE=$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}' || echo "")
+if [ -z "$ACTIVE" ]; then ACTIVE=blue; fi
+if [ "$ACTIVE" = "blue" ]; then TARGET=green; else TARGET=blue; fi
+echo "Current: $ACTIVE → Switching to: $TARGET"
+kubectl patch service timer-app-service -n ${NAMESPACE} --type=merge -p '{"spec":{"selector":{"app":"timer-app","track":"'"$TARGET"'"}}}'
+sleep 3
+NEW=$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}')
+echo "✅ Service now points to: $NEW"
+'''
+                        }
+                    }
+                }
+            }
+        }
+
         stage('Build') {
+            when { expression { return !params.DEMO_ONLY } }
             steps {
                 script {
                     def imageFull = "${env.REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG}"
-                    echo "Building ${imageFull}"
-                    
-                    // Build with proper error handling
-                    sh """
-                        docker info
-                        docker build --progress=plain -t ${imageFull} -t ${env.REGISTRY}/${env.IMAGE_NAME}:latest .
-                    """
+                    if (params.SKIP_DOCKER) {
+                        echo "Skipping Docker build (SKIP_DOCKER=true). Pipeline sanity check only."
+                    } else {
+                        echo "Building ${imageFull}"
+                        sh """
+                            docker info
+                            docker build --progress=plain -t ${imageFull} -t ${env.REGISTRY}/${env.IMAGE_NAME}:latest .
+                        """
+                    }
                 }
             }
         }
 
         stage('Push') {
+            when { expression { return !params.DEMO_ONLY && !params.SKIP_PUSH } }
             steps {
                 script {
                     // Use a Jenkins credential (username/password) with id 'dockerhub-creds' or update the id below
@@ -78,6 +107,7 @@ pipeline {
         }
 
         stage('Determine Target Color') {
+            when { expression { return !params.DEMO_ONLY && !params.SKIP_DEPLOY } }
             steps {
                 script {
                     // Detect active color from service and pick the opposite as target
@@ -98,6 +128,7 @@ pipeline {
         }
 
         stage('Deploy to Kubernetes') {
+            when { expression { return !params.DEMO_ONLY && !params.SKIP_DEPLOY } }
             steps {
                 script {
                     // Requires a Jenkins 'Secret file' credential containing kubeconfig with id 'kubeconfig'
@@ -118,6 +149,7 @@ pipeline {
         }
 
         stage('Smoke Test') {
+            when { expression { return !params.DEMO_ONLY && !params.SKIP_DEPLOY && !params.SKIP_SMOKE } }
             steps {
                 script {
                     withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
@@ -191,6 +223,7 @@ pipeline {
         }
 
         stage('Switch Traffic') {
+            when { expression { return !params.DEMO_ONLY && !params.SKIP_DEPLOY && !params.SKIP_SMOKE } }
             steps {
                 script {
                     withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {

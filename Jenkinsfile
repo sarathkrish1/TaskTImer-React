@@ -9,7 +9,7 @@ pipeline {
     environment {
         NAMESPACE = 'timer-app'
         IMAGE_NAME = 'timer-app'
-        REGISTRY = "docker.io/sarathkrishnan"
+        REGISTRY = "docker.io/sarathkris1"
         IMAGE_TAG = "${BUILD_NUMBER}"
         TARGET_COLOR = 'green'
         ACTIVE_COLOR = 'blue'

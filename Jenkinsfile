@@ -12,7 +12,7 @@ pipeline {
                 checkout scm
                 script {
                     env.TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-                    echo "Building image: ${IMAGE_NAME}:${TAG}"
+                    echo "Build Tag: ${env.TAG}"
                 }
             }
         }
@@ -25,34 +25,24 @@ pipeline {
                     passwordVariable: 'PASS'
                 )]) {
                     sh '''
-                        # Force TCP connection
-                        export DOCKER_HOST=tcp://host.docker.internal:2375
+                        echo "Using DOCKER_HOST: $DOCKER_HOST"
 
                         echo "=== DOCKER VERSION ==="
                         docker version
 
-                        echo "=== LOGIN TO DOCKER HUB ==="
+                        echo "=== LOGIN ==="
                         echo $PASS | docker login -u sarathkrish1 --password-stdin
 
-                        echo "=== BUILD DOCKER IMAGE ==="
+                        echo "=== BUILD ==="
                         docker build -t ${IMAGE_NAME}:${TAG} -t ${IMAGE_NAME}:latest .
 
-                        echo "=== PUSH TO DOCKER HUB ==="
+                        echo "=== PUSH ==="
                         docker push ${IMAGE_NAME}:${TAG}
                         docker push ${IMAGE_NAME}:latest
 
-                        echo "SUCCESS: IMAGE PUSHED!"
+                        echo "PUSHED SUCCESSFULLY!"
                     '''
                 }
-            }
-        }
-
-        stage('Cleanup') {
-            steps {
-                sh '''
-                    docker system prune -f || true
-                '''
-                echo "CI/CD PIPELINE COMPLETE!"
             }
         }
     }
@@ -60,13 +50,8 @@ pipeline {
     post {
         success {
             echo "LIVE ON DOCKER HUB!"
-            echo "https://hub.docker.com/r/sarathkrish1/timer-app/tags"
+            echo "https://hub.docker.com/r/sarathkrish1/timer-app"
         }
-        failure {
-            echo "Build failed. Check Docker Desktop TCP settings."
-        }
-        always {
-            cleanWs()
-        }
+        always { cleanWs() }
     }
 }

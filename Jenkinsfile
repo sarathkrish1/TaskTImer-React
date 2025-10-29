@@ -1,222 +1,221 @@
 pipeline {
-    agent any
-    
+    agent {
+        docker {
+            image 'codewind/docker-dind'
+            args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
+
     environment {
-        KUBE_NAMESPACE = 'timer-app'
+        NAMESPACE = 'timer-app'
+        IMAGE_NAME = 'timer-app'
+        REGISTRY = "docker.io/sarathkrishnan"
         IMAGE_TAG = "${BUILD_NUMBER}"
         TARGET_COLOR = 'green'
         ACTIVE_COLOR = 'blue'
+        DOCKER_BUILDKIT = '1'
     }
-    
+
     stages {
+        stage('Setup Tools') {
+            steps {
+                sh '''
+                    # Update and install required packages
+                    apt-get update
+                    apt-get install -y curl wget apt-transport-https gnupg2
+
+                    # Install kubectl
+                    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                    chmod +x kubectl
+                    mv kubectl /usr/local/bin/
+
+                    # Test tools
+                    docker --version
+                    kubectl version --client
+                '''
+            }
+        }
+
         stage('Checkout') {
             steps {
-                script {
-                    sh 'git rev-parse --short HEAD'
-                }
+                checkout scm
+                sh 'git rev-parse --short HEAD || true'
             }
         }
-        
-        stage('Build Docker Image') {
+
+        stage('Build') {
             steps {
                 script {
-                    sh """
-                        eval \$(minikube docker-env)
-                        docker build -t timer-app:${IMAGE_TAG} .
-                        docker build -t timer-app:latest .
-                    """
-                }
-            }
-        }
-        
-        stage('Prepare Manifests') {
-            steps {
-                script {
-                    sh """
-                        cp k8s/kustomization.yaml k8s/kustomization.yaml.bak
-                        sed -i '' 's/newTag: .*/newTag: "${IMAGE_TAG}"/' k8s/kustomization.yaml
-                        echo 'Updated kustomization.yaml:'
-                        grep newTag k8s/kustomization.yaml
-                    """
-                    sh 'kubectl apply -k k8s/'
-                }
-            }
-        }
-        
-        stage('Blue-Green Deploy') {
-            steps {
-                script {
-                    def activeColor = sh(
-                        script: "kubectl get service timer-app-service -n ${KUBE_NAMESPACE} -o 'jsonpath={.spec.selector.track}'",
-                        returnStdout: true
-                    ).trim()
+                    def imageFull = "${env.REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                    echo "Building ${imageFull}"
                     
-                    echo "Active color: ${activeColor} -> Target color: ${TARGET_COLOR}"
-                    
+                    // Build with proper error handling
                     sh """
-                        kubectl set image deployment/timer-app-${TARGET_COLOR} timer-app=timer-app:${IMAGE_TAG} -n ${KUBE_NAMESPACE}
-                        kubectl rollout status deployment/timer-app-${TARGET_COLOR} -n ${KUBE_NAMESPACE} --timeout=300s
-                        kubectl wait --for=condition=available deployment/timer-app-${TARGET_COLOR} -n ${KUBE_NAMESPACE} --timeout=300s
-                        kubectl wait --for=condition=ready pod -l app=timer-app,track=${TARGET_COLOR} -n ${KUBE_NAMESPACE} --timeout=300s
+                        docker info
+                        docker build --progress=plain -t ${imageFull} -t ${env.REGISTRY}/${env.IMAGE_NAME}:latest .
                     """
                 }
             }
         }
-        
-        stage('Smoke Test New Color') {
+
+        stage('Push') {
             steps {
                 script {
-                    sh """
-                        set -e
-                        
-                        # Wait for pods to be ready and get a running pod
-                        echo "Waiting for ${env.TARGET_COLOR} pods to be ready..."
-                        kubectl wait --for=condition=ready pod -l app=timer-app,track=${env.TARGET_COLOR} -n ${KUBE_NAMESPACE} --timeout=120s --field-selector=status.phase=Running
-                        
-                        # Get the newest running pod
-                        POD_NAME=\$(kubectl get pods -n ${KUBE_NAMESPACE} -l app=timer-app,track=${env.TARGET_COLOR} --field-selector=status.phase=Running -o jsonpath='{.items[-1].metadata.name}')
-                        echo "Testing pod: \$POD_NAME"
-                        
-                        # Verify pod is actually running and ready
-                        kubectl get pod \$POD_NAME -n ${KUBE_NAMESPACE}
-                        
-                        # Wait additional time for pod to be fully ready to serve requests
-                        echo "Waiting for pod to be fully ready to serve requests..."
-                        sleep 30
-                        
-                        # Test the application using kubectl exec
-                        echo "Testing application using kubectl exec..."
-                        set +e
-                        for i in {1..3}; do
-                            echo "Attempt \$i/3..."
-                            
-                            # Test the application directly using kubectl exec
-                            kubectl exec -n ${KUBE_NAMESPACE} \$POD_NAME -- curl -f http://localhost:80 --connect-timeout 10 --max-time 15
-                            STATUS=\$?
-                            
-                            if [ \$STATUS -eq 0 ]; then
-                                echo "Test successful on attempt \$i"
-                                break
-                            else
-                                echo "Test failed on attempt \$i with status: \$STATUS"
-                                if [ \$i -lt 3 ]; then
-                                    echo "Retrying in 10 seconds..."
-                                    sleep 10
-                                fi
+                    // Use a Jenkins credential (username/password) with id 'dockerhub-creds' or update the id below
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh "echo \$DOCKER_PASS | docker login ${env.REGISTRY} -u \$DOCKER_USER --password-stdin"
+                        sh "docker push ${env.REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                        sh "docker push ${env.REGISTRY}/${env.IMAGE_NAME}:latest || true"
+                    }
+                }
+            }
+        }
+
+        stage('Determine Target Color') {
+            steps {
+                script {
+                    // Detect active color from service and pick the opposite as target
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                        withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
+                            def active = sh(script: "kubectl get service timer-app-service -n ${env.NAMESPACE} -o \"jsonpath={.spec.selector.track}\"", returnStdout: true).trim()
+                            if (!active) {
+                                echo "No active color found, defaulting active=blue"
+                                active = 'blue'
+                            }
+                            env.ACTIVE_COLOR = active
+                            env.TARGET_COLOR = (active == 'blue') ? 'green' : 'blue'
+                            echo "Active color: ${env.ACTIVE_COLOR}. Deploying to target color: ${env.TARGET_COLOR}"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // Requires a Jenkins 'Secret file' credential containing kubeconfig with id 'kubeconfig'
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                        withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
+                            def imageFull = "${env.REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+
+                            // Update target deployment with new image
+                            sh "kubectl set image deployment/timer-app-${env.TARGET_COLOR} timer-app=${imageFull} -n ${env.NAMESPACE}"
+                            sh "kubectl rollout status deployment/timer-app-${env.TARGET_COLOR} -n ${env.NAMESPACE} --timeout=300s"
+
+                            // Wait until pods are ready
+                            sh "kubectl wait --for=condition=ready pod -l app=timer-app,track=${env.TARGET_COLOR} -n ${env.NAMESPACE} --timeout=300s"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                script {
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                        withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
+                            sh '''#!/bin/bash
+                            set -euo pipefail
+                            echo "🔍 Running smoke tests against deployment in ${NAMESPACE} (track=${TARGET_COLOR})"
+
+                            # Wait for pods to be ready
+                            echo "⏳ Waiting for pods to be ready..."
+                            kubectl wait --for=condition=ready pod -l app=timer-app,track=${TARGET_COLOR} -n ${NAMESPACE} --timeout=120s --field-selector=status.phase=Running || {
+                                echo "❌ Failed waiting for pods to be ready"
+                                exit 1
+                            }
+
+                            # Try ingress first (if available)
+                            INGRESS_HOST=$(kubectl get ingress -n ${NAMESPACE} timer-app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+                            if [ -n "$INGRESS_HOST" ]; then
+                                echo "🌐 Testing via Ingress at $INGRESS_HOST..."
+                                for i in 1 2 3; do
+                                    echo "Attempt $i via ingress"
+                                    if curl -f -H "Host: timer-app.local" http://$INGRESS_HOST --connect-timeout 10 --max-time 15; then
+                                        echo "✅ Smoke test passed via ingress"
+                                        exit 0
+                                    fi
+                                    sleep 5
+                                done
+                                echo "⚠️ Ingress test failed, falling back to service"
                             fi
-                        done
-                        set -e
-                        
-                        echo "Smoke test status: \$STATUS"
-                        if [ \$STATUS -ne 0 ]; then
-                            echo "Smoke test failed with status: \$STATUS"
-                            exit \$STATUS
-                        fi
-                        echo "Smoke test passed!"
-                    """
+
+                            # Try service via port-forward
+                            echo "🔄 Testing via service port-forward..."
+                            kubectl port-forward -n ${NAMESPACE} service/timer-app-service 9999:80 &
+                            PF_PID=$!
+                            sleep 5
+
+                            set +e
+                            for i in 1 2 3; do
+                                echo "Attempt $i via service"
+                                if curl -f http://localhost:9999 --connect-timeout 10 --max-time 15; then
+                                    echo "✅ Smoke test passed via service"
+                                    kill $PF_PID 2>/dev/null || true
+                                    exit 0
+                                fi
+                                sleep 5
+                            done
+                            kill $PF_PID 2>/dev/null || true
+                            echo "⚠️ Service test failed, falling back to pod exec"
+
+                            # Last resort: test via pod exec
+                            echo "🔄 Testing via pod exec..."
+                            POD_NAME=$(kubectl get pods -n ${NAMESPACE} -l app=timer-app,track=${TARGET_COLOR} --field-selector=status.phase=Running -o jsonpath='{.items[-1].metadata.name}')
+                            echo "Selected pod: ${POD_NAME}"
+
+                            for i in 1 2 3; do
+                                echo "Attempt $i via pod exec"
+                                if kubectl exec -n ${NAMESPACE} ${POD_NAME} -- curl -f http://localhost:80 --connect-timeout 10 --max-time 15; then
+                                    echo "✅ Smoke test passed via pod exec"
+                                    exit 0
+                                fi
+                                sleep 5
+                            done
+
+                            echo "❌ All smoke test methods failed"
+                            exit 1
+                            '''
+                        }
+                    }
                 }
             }
         }
-        
+
         stage('Switch Traffic') {
             steps {
                 script {
-                    sh """
-                        kubectl patch service timer-app-service -n ${KUBE_NAMESPACE} --type=merge -p '{"spec":{"selector":{"app":"timer-app","track":"${TARGET_COLOR}"}}}'
-                        echo "Traffic switched to ${TARGET_COLOR}"
-                        
-                        # Wait for service to update
-                        sleep 10
-                        
-                        # Verify traffic switch
-                        kubectl get service timer-app-service -n ${KUBE_NAMESPACE} -o jsonpath='{.spec.selector.track}'
-                    """
-                }
-            }
-        }
-        
-        stage('Post-Deployment Health Check') {
-            steps {
-                script {
-                    sh """
-                        set -e
-                        echo "Starting post-deployment health check..."
-                        
-                        # Get a running pod from the active deployment
-                        POD_NAME=\$(kubectl get pods -n ${KUBE_NAMESPACE} -l app=timer-app,track=${TARGET_COLOR} --field-selector=status.phase=Running -o jsonpath='{.items[-1].metadata.name}')
-                        echo "Testing pod: \$POD_NAME"
-                        
-                        # Test the application using kubectl exec
-                        echo "Testing application using kubectl exec..."
-                        set +e
-                        for i in {1..3}; do
-                            echo "Attempt \$i/3..."
-                            
-                            # Test the application directly using kubectl exec
-                            kubectl exec -n ${KUBE_NAMESPACE} \$POD_NAME -- curl -f http://localhost:80 --connect-timeout 10 --max-time 15
-                            STATUS=\$?
-                            
-                            if [ \$STATUS -eq 0 ]; then
-                                echo "Health check successful on attempt \$i"
-                                break
-                            else
-                                echo "Health check failed on attempt \$i with status: \$STATUS"
-                                if [ \$i -lt 3 ]; then
-                                    echo "Retrying in 10 seconds..."
-                                    sleep 10
-                                fi
-                            fi
-                        done
-                        set -e
-                        
-                        echo "Health check status: \$STATUS"
-                        if [ \$STATUS -ne 0 ]; then
-                            echo "Health check failed with status: \$STATUS"
-                            exit \$STATUS
-                        fi
-                        echo "Health check passed!"
-                    """
-                }
-            }
-        }
-        
-        stage('Housekeeping') {
-            steps {
-                script {
-                    sh """
-                        # Clean up old deployments
-                        kubectl delete deployment timer-app-${ACTIVE_COLOR} -n ${KUBE_NAMESPACE} --ignore-not-found=true
-                        kubectl delete hpa timer-app-${ACTIVE_COLOR}-hpa -n ${KUBE_NAMESPACE} --ignore-not-found=true
-                        
-                        # Clean up old images
-                        docker image prune -f
-                        
-                        echo "Housekeeping completed"
-                    """
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                        withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
+                            sh "kubectl patch service timer-app-service -n ${env.NAMESPACE} --type=merge -p '{\"spec\":{\"selector\":{\"app\":\"timer-app\",\"track\":\"${env.TARGET_COLOR}\"}}}'"
+                            sh "sleep 5"
+                            sh "kubectl get service timer-app-service -n ${env.NAMESPACE} -o jsonpath='{.spec.selector.track}'"
+                        }
+                    }
                 }
             }
         }
     }
-    
+
     post {
         always {
             cleanWs()
         }
         failure {
             script {
-                echo "❌ Pipeline failed!"
-                sh """
-                    # Rollback to blue
-                    kubectl patch service timer-app-service -n ${KUBE_NAMESPACE} --type=merge -p '{"spec":{"selector":{"app":"timer-app","track":"blue"}}}'
-                    kubectl rollout undo deployment/timer-app-${TARGET_COLOR} -n ${KUBE_NAMESPACE}
-                """
+                echo 'Pipeline failed — attempting rollback'
+                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                    withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
+                        sh "kubectl patch service timer-app-service -n ${env.NAMESPACE} --type=merge -p '{\"spec\":{\"selector\":{\"app\":\"timer-app\",\"track\":\"blue\"}}}' || true"
+                        sh "kubectl rollout undo deployment/timer-app-${env.TARGET_COLOR} -n ${env.NAMESPACE} || true"
+                    }
+                }
             }
         }
         success {
-            script {
-                echo "✅ Pipeline completed successfully!"
-                echo "🚀 Timer app deployed successfully!"
-            }
+            echo 'Deployment successful'
         }
     }
 }

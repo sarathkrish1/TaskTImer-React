@@ -1,11 +1,8 @@
 pipeline {
     agent any
-    parameters {
-        string(name: 'MINIKUBE_IP', defaultValue: '192.168.49.2', description: 'Run `minikube ip` and paste here')
-    }
     environment {
         IMAGE_NAME = 'sarathkrish1/timer-app'
-        NAMESPACE = 'timer-app'
+        DOCKER_CLI = '/usr/bin/docker'  // <-- THIS IS KEY
     }
     stages {
         stage('Checkout') {
@@ -22,65 +19,39 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
-                        echo "Logging in as sarathkrish1..."
-                        echo $PASS | /usr/bin/docker login -u sarathkrish1 --password-stdin
+                        echo "Logging in to Docker Hub..."
+                        echo $PASS | ${DOCKER_CLI} login -u sarathkrish1 --password-stdin
 
                         echo "Building image: ${IMAGE_NAME}:${TAG}"
-                        /usr/bin/docker build -t ${IMAGE_NAME}:${TAG} -t ${IMAGE_NAME}:latest .
+                        ${DOCKER_CLI} build -t ${IMAGE_NAME}:${TAG} -t ${IMAGE_NAME}:latest .
 
                         echo "Pushing ${IMAGE_NAME}:${TAG}..."
-                        /usr/bin/docker push ${IMAGE_NAME}:${TAG}
+                        ${DOCKER_CLI} push ${IMAGE_NAME}:${TAG}
 
                         echo "Pushing ${IMAGE_NAME}:latest..."
-                        /usr/bin/docker push ${IMAGE_NAME}:latest
+                        ${DOCKER_CLI} push ${IMAGE_NAME}:latest
 
-                        echo "Push complete!"
+                        echo "Build & Push SUCCESS!"
                     '''
                 }
             }
         }
-
-        stage('Update Manifest') {
-            steps { 
-                sh "sed -i 's|image: .*|image: ${IMAGE_NAME}:${TAG}|' k8s/kustomization.yaml" 
-                echo "Updated k8s/kustomization.yaml with ${IMAGE_NAME}:${TAG}"
-            }
-        }
-
-        stage('Deploy') {
-            when { expression { return false } } // Skip K8s for now
-            steps {
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    sh '''
-                        mkdir -p ~/.kube
-                        cp $KUBECONFIG ~/.kube/config
-                        kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
-                        kubectl apply -k k8s/
-                    '''
-                }
-            }
-        }
-
-        stage('Wait') { when { expression { return false } } steps { echo 'Skipped' } }
-        stage('Smoke Test') { when { expression { return false } } steps { echo 'Skipped' } }
-        stage('Switch') { when { expression { return false } } steps { echo 'Skipped' } }
-        stage('Verify') { when { expression { return false } } steps { echo 'Skipped' } }
 
         stage('Cleanup') {
-            steps { 
+            steps {
                 sh '''
-                    echo "Cleaning up dangling images..."
-                    /usr/bin/docker system prune -f || true
+                    echo "Pruning dangling images..."
+                    ${DOCKER_CLI} system prune -f || true
                 '''
-                echo 'ALL GREEN! Docker Build & Push SUCCESS!'
+                echo 'CI/CD PIPELINE COMPLETE!'
             }
         }
     }
 
     post {
         success { 
-            echo "SUCCESS: DEPLOYED TO DOCKER HUB!"
-            echo "https://hub.docker.com/r/sarathkrish1/timer-app"
+            echo "SUCCESS: IMAGE LIVE ON DOCKER HUB!"
+            echo "https://hub.docker.com/r/sarathkrish1/timer-app/tags"
         }
         failure { echo 'Build failed!' }
         always { cleanWs() }

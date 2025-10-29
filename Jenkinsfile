@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'sarathkrish1/timer-app'
+        DOCKER_API = 'http://host.docker.internal:2375'
     }
 
     stages {
@@ -16,7 +17,7 @@ pipeline {
             }
         }
 
-        stage('Build & Push') {
+        stage('Build & Push via API') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'docker-hub-credentials',
@@ -24,25 +25,26 @@ pipeline {
                     passwordVariable: 'PASS'
                 )]) {
                     sh '''
-                        # FORCE TCP — THIS IS CRITICAL
-                        export DOCKER_HOST=tcp://host.docker.internal:2375
+                        # 1. LOGIN VIA API
+                        echo "Logging in to Docker Hub..."
+                        curl -s -X POST "${DOCKER_API}/auth" \
+                          -H "Content-Type: application/json" \
+                          -d '{"username": "sarathkrish1", "password": "'"$PASS"'"}' > /dev/null
 
-                        echo "Using DOCKER_HOST: $DOCKER_HOST"
+                        # 2. BUILD IMAGE
+                        echo "Building image..."
+                        tar -czf build-context.tar.gz .
+                        curl -s -X POST "${DOCKER_API}/build?t=${IMAGE_NAME}:${TAG}&t=${IMAGE_NAME}:latest" \
+                          --data-binary @build-context.tar.gz \
+                          -H "Content-Type: application/x-tar" > build.log
+                        cat build.log | grep -i "success"
 
-                        echo "=== DOCKER VERSION ==="
-                        docker version
+                        # 3. PUSH IMAGE
+                        echo "Pushing ${IMAGE_NAME}:${TAG}..."
+                        curl -s -X POST "${DOCKER_API}/images/${IMAGE_NAME}:${TAG}/push" > push.log
+                        cat push.log | grep -i "digest"
 
-                        echo "=== LOGIN ==="
-                        echo $PASS | docker login -u sarathkrish1 --password-stdin
-
-                        echo "=== BUILD ==="
-                        docker build -t ${IMAGE_NAME}:${TAG} -t ${IMAGE_NAME}:latest .
-
-                        echo "=== PUSH ==="
-                        docker push ${IMAGE_NAME}:${TAG}
-                        docker push ${IMAGE_NAME}:latest
-
-                        echo "SUCCESS: PUSHED!"
+                        echo "PUSHED SUCCESSFULLY!"
                     '''
                 }
             }

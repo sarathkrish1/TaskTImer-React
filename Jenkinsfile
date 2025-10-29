@@ -36,9 +36,8 @@ pipeline {
             when { expression { return params.DEMO_ONLY } }
             steps {
                 script {
-                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-                        withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
-                            sh '''#!/bin/bash
+                    withEnv(["KUBECONFIG=${env.WORKSPACE}/my-kubeconfig.yaml"]) {
+                        sh '''#!/bin/bash
 set -euo pipefail
 echo "🔵🟢 Demo: Blue/Green flip in namespace: ${NAMESPACE}"
 # Ensure kubectl exists (download locally if missing)
@@ -59,7 +58,6 @@ sleep 3
 NEW=$($KUBECTL get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}')
 echo "✅ Service now points to: $NEW"
 '''
-                        }
                     }
                 }
             }

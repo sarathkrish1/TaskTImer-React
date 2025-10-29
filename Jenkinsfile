@@ -3,7 +3,6 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'sarathkrish1/timer-app'
-        DOCKER_HOST = 'tcp://host.docker.internal:2375'
     }
 
     stages {
@@ -25,6 +24,9 @@ pipeline {
                     passwordVariable: 'PASS'
                 )]) {
                     sh '''
+                        # FORCE TCP — THIS IS CRITICAL
+                        export DOCKER_HOST=tcp://host.docker.internal:2375
+
                         echo "Using DOCKER_HOST: $DOCKER_HOST"
 
                         echo "=== DOCKER VERSION ==="
@@ -40,7 +42,7 @@ pipeline {
                         docker push ${IMAGE_NAME}:${TAG}
                         docker push ${IMAGE_NAME}:latest
 
-                        echo "PUSHED SUCCESSFULLY!"
+                        echo "SUCCESS: PUSHED!"
                     '''
                 }
             }

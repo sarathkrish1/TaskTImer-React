@@ -5,6 +5,7 @@ pipeline {
         string(name: 'REGISTRY',   defaultValue: 'docker.io/sarathkris1', description: 'Container registry (e.g., docker.io/<user> or ghcr.io/<org>)')
         string(name: 'IMAGE_NAME', defaultValue: 'timer-app',             description: 'Image/repository name')
         string(name: 'NAMESPACE',  defaultValue: 'timer-app',             description: 'Kubernetes namespace')
+        text(name: 'KUBECONFIG_CONTENT', defaultValue: '', description: 'Optional: paste kubeconfig content here (demo flip only)')
         booleanParam(name: 'DEMO_ONLY',   defaultValue: true,  description: 'Demo-only Blue/Green flip (no build/push)')
         booleanParam(name: 'SKIP_DOCKER', defaultValue: true,  description: 'Skip Docker build on nodes without Docker')
         booleanParam(name: 'SKIP_PUSH',   defaultValue: true,  description: 'Skip pushing image to registry (no creds needed)')
@@ -36,7 +37,14 @@ pipeline {
             when { expression { return params.DEMO_ONLY } }
             steps {
                 script {
-                    withEnv(["KUBECONFIG=${env.WORKSPACE}/my-kubeconfig.yaml"]) {
+                    // If user pasted kubeconfig, write it to a file and use it
+                    if (params.KUBECONFIG_CONTENT?.trim()) {
+                        writeFile file: 'inline-kubeconfig.yaml', text: params.KUBECONFIG_CONTENT
+                        env.KUBECONFIG = "${env.WORKSPACE}/inline-kubeconfig.yaml"
+                    } else {
+                        env.KUBECONFIG = "${env.WORKSPACE}/my-kubeconfig.yaml"
+                    }
+                    withEnv(["KUBECONFIG=${env.KUBECONFIG}"]) {
                         sh '''#!/bin/bash
 set -euo pipefail
 echo "🔵🟢 Demo: Blue/Green flip in namespace: ${NAMESPACE}"

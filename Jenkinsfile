@@ -1,26 +1,20 @@
-#!/usr/bin/env groovy
-
 pipeline {
     agent any
-
+    parameters {
+        string(name: 'MINIKUBE_IP', defaultValue: '192.168.49.2', description: 'Minikube IP')
+    }
     environment {
         IMAGE_NAME = 'sarathkrish1/timer-app'
         NAMESPACE  = 'timer-app'
-        TAG        = ''
     }
-
     stages {
-        stage('Declarative: Checkout SCM') {
+        stage('Checkout') {
             steps {
                 checkout scm
-                script {
-                    TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-                    echo "Checked out commit: ${TAG}"
-                }
+                script { env.TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim() }
             }
         }
-
-        stage('Build Docker Image') {
+        stage('Build & Push') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
@@ -32,29 +26,22 @@ pipeline {
                 }
             }
         }
-
         stage('Update Manifest') {
-            steps {
-                sh '''
-                sed -i "s|image: .*|image: ${IMAGE_NAME}:${TAG}|" k8s/kustomization.yaml
-                '''
-            }
+            steps { sh "sed -i 's|image: .*|image: ${IMAGE_NAME}:${TAG}|' k8s/kustomization.yaml" }
         }
-
-        stage('Deploy to Kubernetes') {
+        stage('Deploy') {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     sh '''
                     mkdir -p ~/.kube
                     cp $KUBECONFIG ~/.kube/config
-                    kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+                    kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
                     kubectl apply -k k8s/
                     '''
                 }
             }
         }
-
-        stage('Wait for Rollout') {
+        stage('Wait') {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     sh '''
@@ -66,23 +53,20 @@ pipeline {
                 }
             }
         }
-
         stage('Smoke Test') {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     sh '''
                     cp $KUBECONFIG ~/.kube/config
-                    POD=$(kubectl get pod -n ${NAMESPACE} -l app=timer-app,track=$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}') -o jsonpath='{.items[0].metadata.name}')
+                    POD=$(kubectl get pod -n ${NAMESPACE} -l app=timer-app -o jsonpath='{.items[0].metadata.name}')
                     kubectl port-forward -n ${NAMESPACE} pod/$POD 3000:3000 > /dev/null 2>&1 &
-                    PID=$!
                     sleep 10
-                    curl -f http://localhost:3000 && kill $PID
+                    curl -f http://localhost:3000 && kill $!
                     '''
                 }
             }
         }
-
-        stage('Switch Traffic') {
+        stage('Switch') {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     sh '''
@@ -90,42 +74,24 @@ pipeline {
                     LIVE=$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}')
                     TARGET=$([ "$LIVE" = "blue" ] && echo green || echo blue)
                     kubectl patch svc timer-app-service -n ${NAMESPACE} -p "{\\"spec\\":{\\"selector\\":{\\"track\\":\\"${TARGET}\\"}}}"
-                    kubectl scale deployment/timer-app-${LIVE} --replicas=1 -n ${NAMESPACE}
                     '''
                 }
             }
         }
-
-        stage('Verify via Ingress') {
+        stage('Verify') {
             steps {
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    sh '''
-                    cp $KUBECONFIG ~/.kube/config
-                    IP=$(minikube ip 2>/dev/null || echo 127.0.0.1)
-                    echo "$IP timer-app.local" | tee -a /tmp/hosts
-                    sleep 10
-                    curl -f http://timer-app.local && echo "App is LIVE at http://timer-app.local"
-                    '''
-                }
+                sh '''
+                echo "${MINIKUBE_IP} timer-app.local" | tee -a /tmp/hosts
+                curl -f http://timer-app.local
+                '''
             }
         }
-
         stage('Cleanup') {
-            steps {
-                echo 'Pipeline completed successfully!'
-            }
+            steps { echo 'ALL GREEN!' }
         }
     }
-
     post {
-        success {
-            echo 'DEPLOYMENT SUCCESSFUL! ALL STAGES GREEN!'
-        }
-        failure {
-            echo 'Deployment failed. Check logs.'
-        }
-        always {
-            cleanWs()
-        }
+        success { echo 'DEPLOY SUCCESS! ALL STAGES GREEN!' }
+        always { cleanWs() }
     }
 }

@@ -23,25 +23,7 @@ pipeline {
     }
 
     stages {
-        stage('Setup Tools') {
-            steps {
-                sh '''
-                    set -e
-                    # Update and install required packages
-                    apt-get update
-                    apt-get install -y curl wget apt-transport-https gnupg2 ca-certificates
-
-                    # Install kubectl (client-only)
-                    curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                    chmod +x kubectl
-                    mv kubectl /usr/local/bin/
-
-                    # Test tools
-                    kubectl version --client
-                    # docker might not be present on the node; skip checking it
-                '''
-            }
-        }
+        
 
         stage('Checkout') {
             steps {
@@ -59,13 +41,22 @@ pipeline {
                             sh '''#!/bin/bash
 set -euo pipefail
 echo "🔵🟢 Demo: Blue/Green flip in namespace: ${NAMESPACE}"
+# Ensure kubectl exists (download locally if missing)
+if ! command -v kubectl >/dev/null 2>&1; then
+  echo "Downloading kubectl..."
+  curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+  chmod +x kubectl
+  KUBECTL=./kubectl
+else
+  KUBECTL=kubectl
+fi
 ACTIVE=$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}' || echo "")
 if [ -z "$ACTIVE" ]; then ACTIVE=blue; fi
 if [ "$ACTIVE" = "blue" ]; then TARGET=green; else TARGET=blue; fi
 echo "Current: $ACTIVE → Switching to: $TARGET"
-kubectl patch service timer-app-service -n ${NAMESPACE} --type=merge -p '{"spec":{"selector":{"app":"timer-app","track":"'"$TARGET"'"}}}'
+$KUBECTL patch service timer-app-service -n ${NAMESPACE} --type=merge -p '{"spec":{"selector":{"app":"timer-app","track":"'"$TARGET"'"}}}'
 sleep 3
-NEW=$(kubectl get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}')
+NEW=$($KUBECTL get svc timer-app-service -n ${NAMESPACE} -o jsonpath='{.spec.selector.track}')
 echo "✅ Service now points to: $NEW"
 '''
                         }
@@ -244,12 +235,16 @@ echo "✅ Service now points to: $NEW"
         }
         failure {
             script {
-                echo 'Pipeline failed — attempting rollback'
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-                    withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
-                        sh "kubectl patch service timer-app-service -n ${env.NAMESPACE} --type=merge -p '{\"spec\":{\"selector\":{\"app\":\"timer-app\",\"track\":\"blue\"}}}' || true"
-                        sh "kubectl rollout undo deployment/timer-app-${env.TARGET_COLOR} -n ${env.NAMESPACE} || true"
+                if (!params.DEMO_ONLY && !params.SKIP_DEPLOY) {
+                    echo 'Pipeline failed — attempting rollback'
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                        withEnv(["KUBECONFIG=${KUBECONFIG_FILE}"]) {
+                            sh "kubectl patch service timer-app-service -n ${env.NAMESPACE} --type=merge -p '{\"spec\":{\"selector\":{\"app\":\"timer-app\",\"track\":\"blue\"}}}' || true"
+                            sh "kubectl rollout undo deployment/timer-app-${env.TARGET_COLOR} -n ${env.NAMESPACE} || true"
+                        }
                     }
+                } else {
+                    echo 'Pipeline failed in demo-only or skip-deploy mode — no rollback attempted'
                 }
             }
         }

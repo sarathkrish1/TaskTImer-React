@@ -1,0 +1,7 @@
+﻿<com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl>
+  <scope>GLOBAL</scope>
+  <id>dockerhub-creds</id>
+  <description>Placeholder Docker Hub credentials - replace or update via Jenkins UI</description>
+  <username></username>
+  <password></password>
+</com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl>

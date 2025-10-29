@@ -18,10 +18,12 @@ spec:
         app: timer-app
         track: green
     spec:
+      imagePullSecrets:
+      - name: regcred
       containers:
       - name: timer-app
         image: timer-app:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
         resources:

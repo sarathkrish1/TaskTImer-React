@@ -18,4 +18,5 @@ commonLabels:
 
 images:
 - name: timer-app
+  newName: timer-app
   newTag: latest

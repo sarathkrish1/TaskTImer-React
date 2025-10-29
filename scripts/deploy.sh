@@ -49,14 +49,27 @@ push_image() {
 deploy_k8s() {
     log_info "Deploying to Kubernetes..."
     
-    # Update image tag in kustomization.yaml
-    sed -i "s/newTag: .*/newTag: ${BUILD_NUMBER}/" k8s/kustomization.yaml
-    
-    # Apply Kubernetes manifests
-    kubectl apply -k k8s/
-    
-    # Wait for deployment
-    kubectl rollout status deployment/timer-app-deployment -n ${NAMESPACE} --timeout=300s
+        # Update image tag in kustomization.yaml (portable using awk)
+        awk -v tag="${BUILD_NUMBER}" 'BEGIN{in_images=0} 
+          /^images:/ {print; in_images=1; next} 
+          in_images && /^- name:/ {print; next} 
+          in_images && /^newName:/ {print "newName: " tag; next} 
+          in_images && /^newTag:/ {print "newTag: " tag; next} 
+          {print}
+        ' k8s/kustomization.yaml > k8s/kustomization.yaml.tmp && mv k8s/kustomization.yaml.tmp k8s/kustomization.yaml || true
+
+        # Ensure newTag is present (fallback replace or append)
+        if ! grep -q "newTag:" k8s/kustomization.yaml; then
+            sed -i "/images:/a\
+    - name: ${IMAGE_NAME}\n  newTag: ${BUILD_NUMBER}\\n" k8s/kustomization.yaml || true
+        fi
+
+        # Apply Kubernetes manifests
+        kubectl apply -k k8s/
+
+        # Wait for deployment rollout for both blue and green (whichever exists)
+        kubectl rollout status deployment/timer-app-blue -n ${NAMESPACE} --timeout=300s || true
+        kubectl rollout status deployment/timer-app-green -n ${NAMESPACE} --timeout=300s || true
     
     log_info "Deployment completed successfully"
 }

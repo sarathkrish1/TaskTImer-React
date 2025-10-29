@@ -1,0 +1,8 @@
+docker-workflow
+kubernetes-cli
+git
+credentials
+workflow-aggregator
+pipeline-stage-view
+kubernetes
+docker-plugin

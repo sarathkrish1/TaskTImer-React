@@ -6,10 +6,16 @@ pipeline {
         }
     }
 
+    parameters {
+        string(name: 'REGISTRY',   defaultValue: 'docker.io/sarathkris1', description: 'Container registry (e.g., docker.io/<user> or ghcr.io/<org>)')
+        string(name: 'IMAGE_NAME', defaultValue: 'timer-app',             description: 'Image/repository name')
+        string(name: 'NAMESPACE',  defaultValue: 'timer-app',             description: 'Kubernetes namespace')
+    }
+
     environment {
-        NAMESPACE = 'timer-app'
-        IMAGE_NAME = 'timer-app'
-        REGISTRY = "docker.io/sarathkris1"
+        NAMESPACE = "${params.NAMESPACE}"
+        IMAGE_NAME = "${params.IMAGE_NAME}"
+        REGISTRY   = "${params.REGISTRY}"
         IMAGE_TAG = "${BUILD_NUMBER}"
         TARGET_COLOR = 'green'
         ACTIVE_COLOR = 'blue'

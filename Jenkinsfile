@@ -25,17 +25,17 @@ pipeline {
                     passwordVariable: 'PASS'
                 )]) {
                     sh '''
-                        echo "=== LOGIN TO DOCKER HUB ==="
+                        echo "=== LOGIN TO DOCKER HUB (USING PAT) ==="
                         curl -s -X POST "${DOCKER_API}/auth" \
                           -H "Content-Type: application/json" \
-                          -d '{"username": "sarathkrish1", "password": "'"$PASS"'"}' || exit 1
+                          -d "{\"username\": \"$USER\", \"password\": \"$PASS\"}" || exit 1
 
                         echo "=== BUILD IMAGE ==="
-                        tar -czf build-context.tar.gz .
+                        tar -czf build-context.tar.gz . || true
                         curl -s -X POST "${DOCKER_API}/build?t=${IMAGE_NAME}:${TAG}&t=${IMAGE_NAME}:latest&t=${IMAGE_NAME}:dev" \
                           --data-binary @build-context.tar.gz \
                           -H "Content-Type: application/x-tar" > build.log
-                        grep -i "success" build.log && echo "BUILD SUCCESS!"
+                        grep -i "success" build.log && echo "BUILD SUCCESS!" || exit 1
 
                         echo "=== PUSH TAGS ==="
                         for tag in ${TAG} latest dev; do
@@ -50,7 +50,6 @@ pipeline {
             }
         }
 
-        // NEW STAGE 1: Run & Test Locally
         stage('Run & Test Container') {
             steps {
                 sh '''
@@ -64,46 +63,23 @@ pipeline {
                       }' | jq -r .Id)
 
                     curl -s -X POST "${DOCKER_API}/containers/\${CONTAINER_ID}/start"
-
-                    echo "Waiting 15s for app to start..."
                     sleep 15
-
-                    echo "Testing http://localhost:3000..."
                     curl -f --max-time 20 http://localhost:3000 && echo "APP IS LIVE!" || echo "APP FAILED"
-
-                    echo "Stopping container..."
                     curl -s -X POST "${DOCKER_API}/containers/\${CONTAINER_ID}/stop"
                     curl -s -X DELETE "${DOCKER_API}/containers/\${CONTAINER_ID}"
                 '''
             }
         }
 
-        // NEW STAGE 2: Confirm dev tag
         stage('Confirm dev Tag') {
             steps {
-                echo "dev tag pushed: ${IMAGE_NAME}:dev"
-                echo "Check: https://hub.docker.com/r/sarathkrish1/timer-app/tags"
+                echo "dev tag: ${IMAGE_NAME}:dev"
             }
         }
     }
 
     post {
-        success {
-            script {
-                echo "SUCCESS: IMAGE LIVE ON DOCKER HUB!"
-                echo "https://hub.docker.com/r/sarathkrish1/timer-app"
-                echo "Tags: ${env.TAG}, latest, dev"
-            }
-        }
-        failure {
-            script {
-                echo "BUILD FAILED. Check logs above."
-            }
-        }
-        always {
-            script {
-                cleanWs(cleanWhenSuccess: true, cleanWhenFailure: true, cleanWhenAborted: true)
-            }
-        }
+        success { script { echo "LIVE: https://hub.docker.com/r/${IMAGE_NAME}" } }
+        always { script { cleanWs() } }
     }
 }

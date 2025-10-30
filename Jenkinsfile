@@ -50,51 +50,59 @@ pipeline {
             }
         }
 
-        // NEW STAGE 1
-        stage('Verify Image Locally') {
+        // NEW STAGE 1: Run & Test Locally
+        stage('Run & Test Container') {
             steps {
                 sh '''
-                    echo "=== RUN CONTAINER & TEST PORT ==="
+                    echo "=== START TEST CONTAINER ==="
                     CONTAINER_ID=$(curl -s -X POST "${DOCKER_API}/containers/create?name=test-timer" \
                       -H "Content-Type: application/json" \
-                      -d '{"Image": "${IMAGE_NAME}:${TAG}", "ExposedPorts": {"3000/tcp": {}}}' | jq -r .Id)
+                      -d '{
+                        "Image": "${IMAGE_NAME}:${TAG}",
+                        "ExposedPorts": {"3000/tcp": {}},
+                        "HostConfig": { "PortBindings": { "3000/tcp": [{ "HostPort": "3000" }] } }
+                      }' | jq -r .Id)
 
                     curl -s -X POST "${DOCKER_API}/containers/\${CONTAINER_ID}/start"
 
-                    sleep 10
+                    echo "Waiting 15s for app to start..."
+                    sleep 15
 
-                    curl -f --max-time 10 http://host.docker.internal:3000 && echo "APP IS RUNNING!" || echo "APP FAILED TO RESPOND"
+                    echo "Testing http://localhost:3000..."
+                    curl -f --max-time 20 http://localhost:3000 && echo "APP IS LIVE!" || echo "APP FAILED"
 
+                    echo "Stopping container..."
                     curl -s -X POST "${DOCKER_API}/containers/\${CONTAINER_ID}/stop"
                     curl -s -X DELETE "${DOCKER_API}/containers/\${CONTAINER_ID}"
                 '''
             }
         }
 
-        // NEW STAGE 2
-        stage('Tag & Push dev') {
+        // NEW STAGE 2: Confirm dev tag
+        stage('Confirm dev Tag') {
             steps {
-                echo "dev tag already pushed in Build stage"
+                echo "dev tag pushed: ${IMAGE_NAME}:dev"
+                echo "Check: https://hub.docker.com/r/sarathkrish1/timer-app/tags"
             }
         }
     }
 
     post {
         success {
-            node('') {
-                echo "LIVE ON DOCKER HUB!"
+            script {
+                echo "SUCCESS: IMAGE LIVE ON DOCKER HUB!"
                 echo "https://hub.docker.com/r/sarathkrish1/timer-app"
                 echo "Tags: ${env.TAG}, latest, dev"
             }
         }
         failure {
-            node('') {
-                echo "Build failed. Check Docker API logs."
+            script {
+                echo "BUILD FAILED. Check logs above."
             }
         }
         always {
-            node('') {
-                cleanWs()
+            script {
+                cleanWs(cleanWhenSuccess: true, cleanWhenFailure: true, cleanWhenAborted: true)
             }
         }
     }

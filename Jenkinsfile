@@ -71,7 +71,7 @@ pipeline {
             }
         }
 
-        stage('Confirm dev Tag') {
+        stage('Blue-Green Deploy') {
             steps {
                 echo "dev tag: ${IMAGE_NAME}:dev"
             }

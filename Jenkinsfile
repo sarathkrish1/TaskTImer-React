@@ -52,28 +52,13 @@ pipeline {
                 sh 'echo "Running ML model validation tests..."'
             }
         }
-        stage('Push to Docker Hub\nlovitra/signecho:latest') {
-            steps {
-                sh '''
-                    echo "=== PUSH TAGS ==="
-                    for tag in ${TAG} latest dev; do
-                        echo "Pushing ${IMAGE_NAME}:\${tag}..."
-                        curl -s -X POST "${DOCKER_API}/images/${IMAGE_NAME}:\${tag}/push" > "push-\${tag}.log"
-                        grep -i "digest" "push-\${tag}.log" && echo "PUSH \${tag} SUCCESS!"
-                    done
-                '''
-            }
-        }
-        stage('Deploy to AWS Elastic Beanstalk\nDocker + EC2') {
+        
+        stage('Deploy to AWS EC2') {
             steps {
                 sh 'echo "Deploying to AWS Elastic Beanstalk..."'
             }
         }
-        stage('Trigger AWS Lambda') {
-            steps {
-                sh 'echo "Triggering real-time inference via AWS Lambda..."'
-            }
-        }
+        
         stage('Monitor with CloudWatch') {
             steps {
                 sh 'echo "Monitoring latency and performance via CloudWatch..."'

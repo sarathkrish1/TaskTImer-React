@@ -7,7 +7,7 @@ pipeline {
     }
 
     stages {
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
                 checkout scm
                 script {
@@ -17,7 +17,7 @@ pipeline {
             }
         }
 
-        stage('Build & Push via Docker API') {
+        stage('Build Docker Image Python + MediaPipe + OpenCV') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'docker-hub-credentials',
@@ -50,7 +50,7 @@ pipeline {
             }
         }
 
-        stage('Run & Test Container') {
+        stage('Deploy to AWS') {
             steps {
                 sh '''
                     echo "=== START TEST CONTAINER ==="
@@ -71,7 +71,7 @@ pipeline {
             }
         }
 
-        stage('Blue-Green Deploy') {
+        stage('Monitor with CloudWatch') {
             steps {
                 echo "dev tag: ${IMAGE_NAME}:dev"
             }
